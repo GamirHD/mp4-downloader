@@ -19,7 +19,21 @@ Desktop and console app for downloading supported video links as MP4.
 
 ## Console usage
 
-Install the app from this folder:
+Install with PowerShell:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.ps1 | iex
+```
+
+After installing, close the terminal and open a new CMD or PowerShell window.
+
+Uninstall:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/uninstall.ps1 | iex
+```
+
+Install from a downloaded project folder:
 
 ```cmd
 py -m pip install .
