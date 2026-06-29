@@ -118,6 +118,29 @@ def read_key() -> str:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
+def menu_lines(title: str, items: list[str], selected: int) -> list[str]:
+    lines = title.splitlines()
+    lines.append("")
+    for index, item in enumerate(items):
+        pointer = ">" if index == selected else " "
+        lines.append(f"{pointer} {item}")
+    lines.append("")
+    lines.append("Pfeiltasten: auswaehlen  Enter: bestaetigen  Q/Esc: abbrechen")
+    return lines
+
+
+def render_menu(lines: list[str], previous_line_count: int) -> int:
+    if previous_line_count:
+        print(f"\033[{previous_line_count}F", end="")
+    width = shutil.get_terminal_size(fallback=(80, 24)).columns
+    clear_line = "\033[2K"
+    output = []
+    for line in lines:
+        output.append(f"{clear_line}{line[:width]}")
+    print("\n".join(output), end="\n", flush=True)
+    return len(lines)
+
+
 def select_menu(title: str, items: list[str], default_index: int = 0) -> int | None:
     if not items:
         return None
@@ -128,7 +151,10 @@ def select_menu(title: str, items: list[str], default_index: int = 0) -> int | N
         for index, item in enumerate(items, start=1):
             print(f"  {index}. {item}")
         while True:
-            choice = input(f"Auswahl [{selected + 1}]: ").strip()
+            try:
+                choice = input(f"Auswahl [{selected + 1}]: ").strip()
+            except EOFError:
+                return selected
             if not choice:
                 return selected
             if choice.isdigit():
@@ -137,27 +163,25 @@ def select_menu(title: str, items: list[str], default_index: int = 0) -> int | N
                     return number - 1
             print("Bitte eine gueltige Nummer eingeben.")
 
-    while True:
-        print("\033[2J\033[H", end="")
-        print(title)
-        print()
-        for index, item in enumerate(items):
-            pointer = ">" if index == selected else " "
-            print(f"{pointer} {item}")
-        print()
-        print("Pfeiltasten: auswaehlen  Enter: bestaetigen  Q/Esc: abbrechen")
+    previous_line_count = 0
+    print("\033[?25l", end="", flush=True)
+    try:
+        while True:
+            previous_line_count = render_menu(menu_lines(title, items, selected), previous_line_count)
 
-        key = read_key()
-        if key == "up":
-            selected = (selected - 1) % len(items)
-        elif key == "down":
-            selected = (selected + 1) % len(items)
-        elif key == "enter":
-            print()
-            return selected
-        elif key in ("q", "escape"):
-            print()
-            return None
+            key = read_key()
+            if key == "up":
+                selected = (selected - 1) % len(items)
+            elif key == "down":
+                selected = (selected + 1) % len(items)
+            elif key == "enter":
+                print("\033[?25h", end="", flush=True)
+                return selected
+            elif key in ("q", "escape"):
+                print("\033[?25h", end="", flush=True)
+                return None
+    finally:
+        print("\033[?25h", end="", flush=True)
 
 
 def pause() -> None:
