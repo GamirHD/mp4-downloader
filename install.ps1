@@ -33,7 +33,7 @@ function Ensure-WingetPackage {
 
 Write-Host "Installiere mp4-downloader..."
 
-Ensure-WingetPackage -PackageId "Python.Python.3.12" -CommandName "py" -DisplayName "Python"
+Ensure-WingetPackage -PackageId "Python.Python.3.12" -CommandName "python" -DisplayName "Python"
 Ensure-WingetPackage -PackageId "Gyan.FFmpeg" -CommandName "ffmpeg" -DisplayName "ffmpeg"
 
 if (Test-Path $installRoot) {
@@ -50,8 +50,8 @@ $expandedDir = Join-Path $installRoot "mp4-downloader-main"
 Move-Item $expandedDir $sourceDir
 
 Write-Host "Installiere vd-Befehl..."
-py -m pip install --upgrade pip
-py -m pip install --upgrade $sourceDir
+python -m pip install --upgrade pip
+python -m pip install --upgrade $sourceDir
 
 Write-Host ""
 Write-Host "Fertig. Schliesse dieses Terminal und oeffne ein neues."

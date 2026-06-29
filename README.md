@@ -36,7 +36,7 @@ iwr -useb https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/uninstal
 Install from a downloaded project folder:
 
 ```cmd
-py -m pip install .
+python -m pip install .
 ```
 
 After that you can use it from CMD or PowerShell:

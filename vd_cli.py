@@ -95,7 +95,7 @@ def choose_quality() -> str:
 
 def download(url: str, quality_key: str, folder: Path) -> None:
     if yt_dlp is None:
-        raise RuntimeError("yt-dlp ist nicht installiert. Fuehre zuerst `py -m pip install .` aus.")
+        raise RuntimeError("yt-dlp ist nicht installiert. Fuehre zuerst `python -m pip install .` aus.")
 
     folder.mkdir(parents=True, exist_ok=True)
     ffmpeg_path = shutil.which("ffmpeg")
