@@ -9,7 +9,9 @@ Desktop and console app for downloading supported video links as MP4.
 - Choose a download folder
 - Download as MP4 with progress and status output
 - Console command: `vd <link>`
+- Arrow-key terminal menus for quality and settings
 - Saved default download folder with `vd settings`
+- Windows folder picker for changing the default download folder
 - Clearer messages when YouTube blocks a link or asks for cookies/login
 
 ## Requirements
@@ -46,12 +48,15 @@ vd "https://www.youtube.com/watch?v=..."
 ```
 
 The command asks for the quality, then starts the download. By default it saves into your Windows `Downloads` folder.
+Use the arrow keys to choose a quality and press Enter.
 
-Show settings:
+Open settings:
 
 ```cmd
 vd settings
 ```
+
+Choose `Change Directory` to open the Windows folder picker and save a new default download folder.
 
 Change the default download folder:
 

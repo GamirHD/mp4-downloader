@@ -74,23 +74,128 @@ def friendly_error(raw_error: str) -> str:
     return text
 
 
-def choose_quality() -> str:
-    keys = list(QUALITY_OPTIONS)
-    print("Aufloesung auswaehlen:")
-    for index, key in enumerate(keys, start=1):
-        print(f"  {index}. {QUALITY_OPTIONS[key][0]}")
+def can_use_interactive_menu() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def read_key() -> str:
+    if os.name == "nt":
+        import msvcrt
+
+        char = msvcrt.getwch()
+        if char in ("\x00", "\xe0"):
+            extended = msvcrt.getwch()
+            if extended == "H":
+                return "up"
+            if extended == "P":
+                return "down"
+            return "other"
+        if char in ("\r", "\n"):
+            return "enter"
+        if char == "\x1b":
+            return "escape"
+        return char.lower()
+
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        char = sys.stdin.read(1)
+        if char == "\x1b":
+            sequence = sys.stdin.read(2)
+            if sequence == "[A":
+                return "up"
+            if sequence == "[B":
+                return "down"
+            return "escape"
+        if char in ("\r", "\n"):
+            return "enter"
+        return char.lower()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+def select_menu(title: str, items: list[str], default_index: int = 0) -> int | None:
+    if not items:
+        return None
+
+    selected = max(0, min(default_index, len(items) - 1))
+    if not can_use_interactive_menu():
+        print(title)
+        for index, item in enumerate(items, start=1):
+            print(f"  {index}. {item}")
+        while True:
+            choice = input(f"Auswahl [{selected + 1}]: ").strip()
+            if not choice:
+                return selected
+            if choice.isdigit():
+                number = int(choice)
+                if 1 <= number <= len(items):
+                    return number - 1
+            print("Bitte eine gueltige Nummer eingeben.")
 
     while True:
-        choice = input("Auswahl [1]: ").strip()
-        if not choice:
-            return keys[0]
-        if choice.isdigit():
-            number = int(choice)
-            if 1 <= number <= len(keys):
-                return keys[number - 1]
-        if choice.lower() in QUALITY_OPTIONS:
-            return choice.lower()
-        print("Bitte eine gueltige Nummer oder Qualitaet eingeben.")
+        print("\033[2J\033[H", end="")
+        print(title)
+        print()
+        for index, item in enumerate(items):
+            pointer = ">" if index == selected else " "
+            print(f"{pointer} {item}")
+        print()
+        print("Pfeiltasten: auswaehlen  Enter: bestaetigen  Q/Esc: abbrechen")
+
+        key = read_key()
+        if key == "up":
+            selected = (selected - 1) % len(items)
+        elif key == "down":
+            selected = (selected + 1) % len(items)
+        elif key == "enter":
+            print()
+            return selected
+        elif key in ("q", "escape"):
+            print()
+            return None
+
+
+def pause() -> None:
+    if can_use_interactive_menu():
+        input("Enter druecken...")
+
+
+def choose_quality() -> str:
+    keys = list(QUALITY_OPTIONS)
+    labels = [QUALITY_OPTIONS[key][0] for key in keys]
+    selected = select_menu("Aufloesung auswaehlen", labels)
+    return keys[0 if selected is None else selected]
+
+
+def choose_directory(current_folder: Path) -> Path | None:
+    if os.name == "nt":
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            selected = filedialog.askdirectory(
+                initialdir=str(current_folder),
+                title="Downloadordner auswaehlen",
+            )
+            root.destroy()
+            if selected:
+                return Path(selected)
+            return None
+        except Exception as exc:  # noqa: BLE001 - tkinter availability depends on the Python install
+            print(f"Explorer-Auswahl nicht moeglich: {exc}")
+
+    entered = input(f"Neuer Downloadordner [{current_folder}]: ").strip()
+    if not entered:
+        return None
+    return Path(entered).expanduser()
 
 
 def download(url: str, quality_key: str, folder: Path) -> None:
@@ -126,8 +231,36 @@ def settings_command(args: argparse.Namespace) -> int:
         print(f"Downloadordner gespeichert: {folder}")
         return 0
 
-    print(f"Settings-Datei: {config_path()}")
-    print(f"Downloadordner: {settings['download_dir']}")
+    if not can_use_interactive_menu():
+        print(f"Settings-Datei: {config_path()}")
+        print(f"Downloadordner: {settings['download_dir']}")
+        return 0
+
+    while True:
+        current_folder = Path(settings["download_dir"]).expanduser()
+        selected = select_menu(
+            f"Settings\nDownloadordner: {current_folder}",
+            ["Change Directory", "Show Settings File", "Exit"],
+        )
+        if selected is None or selected == 2:
+            return 0
+        if selected == 0:
+            folder = choose_directory(current_folder)
+            if folder is None:
+                print("Nicht geaendert.")
+                pause()
+                continue
+            folder = folder.expanduser().resolve()
+            folder.mkdir(parents=True, exist_ok=True)
+            settings["download_dir"] = str(folder)
+            save_settings(settings)
+            print(f"Downloadordner gespeichert: {folder}")
+            pause()
+            continue
+        if selected == 1:
+            print(f"Settings-Datei: {config_path()}")
+            print(f"Downloadordner: {settings['download_dir']}")
+            pause()
     return 0
 
 
@@ -163,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         print()
         print("Weitere Befehle:")
-        print("  vd settings              Downloadordner anzeigen")
+        print("  vd settings              Settings-Menue oeffnen")
         print("  vd settings --folder PFAD Downloadordner aendern")
         print("  vd qualities             Qualitaeten anzeigen")
         return 2
