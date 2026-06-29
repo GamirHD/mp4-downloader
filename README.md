@@ -9,6 +9,7 @@ Desktop and console app for downloading supported video links as MP4 or MP3.
 - Choose a download folder
 - Download as MP4 or MP3 with progress and status output
 - Console command: `vd <link>`
+- Windows GUI executable in GitHub releases
 - Arrow-key terminal menus for quality and settings
 - Saved default download folder with `vd settings`
 - Windows folder picker for changing the default download folder
@@ -89,6 +90,25 @@ vd qualities
 ```
 
 ## Desktop usage
+
+For normal Windows use, download `mp4-downloader.exe` from the latest GitHub release and double-click it.
+No CMD in the project folder is needed.
+
+The GUI still needs `ffmpeg` available in `PATH` for merging MP4 files and converting MP3 audio.
+
+Build the Windows GUI executable locally:
+
+```powershell
+.\build-windows-gui.ps1
+```
+
+The executable will be created at:
+
+```text
+dist\mp4-downloader.exe
+```
+
+Run from source:
 
 Install dependencies:
 

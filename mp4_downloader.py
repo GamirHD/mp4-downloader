@@ -15,15 +15,15 @@ except ImportError:  # pragma: no cover - handled in GUI startup
     yt_dlp = None
 
 
-APP_TITLE = "MP4 Downloader"
+APP_TITLE = "MP4/MP3 Downloader"
 
 
 QUALITY_OPTIONS = {
-    "Beste Qualitaet": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
-    "1080p": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]",
-    "720p": "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/best[height<=720]",
-    "480p": "bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/best[height<=480]",
-    "Audio + Video klein": "worst[ext=mp4]/worst",
+    "Beste Qualitaet": ("bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
+    "1080p": ("bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
+    "720p": ("bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/best[height<=720]", "mp4"),
+    "480p": ("bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/best[height<=480]", "mp4"),
+    "MP3": ("bestaudio/best", "mp3"),
 }
 
 
@@ -166,7 +166,7 @@ class DownloaderApp(tk.Tk):
         )
         self.download_thread.start()
 
-    def _download_worker(self, url: str, folder: Path, format_selector: str) -> None:
+    def _download_worker(self, url: str, folder: Path, quality: tuple[str, str]) -> None:
         def hook(data: dict[str, Any]) -> None:
             status = data.get("status")
             if status == "downloading":
@@ -179,22 +179,32 @@ class DownloaderApp(tk.Tk):
                 self.messages.put(("status", f"Laedt herunter... {speed} ETA {eta}".strip()))
             elif status == "finished":
                 self.messages.put(("progress", 100))
-                self.messages.put(("status", "Verarbeite MP4..."))
+                self.messages.put(("status", "Verarbeite Datei..."))
                 filename = data.get("filename")
                 if filename:
                     self.messages.put(("log", f"Heruntergeladen: {filename}"))
 
+        format_selector, output_kind = quality
         ffmpeg_path = shutil.which("ffmpeg")
         ydl_opts: dict[str, Any] = {
             "format": format_selector,
             "outtmpl": str(folder / "%(title).200s [%(id)s].%(ext)s"),
-            "merge_output_format": "mp4",
             "noplaylist": True,
             "progress_hooks": [hook],
             "logger": QueueLogger(self.messages),
             "quiet": False,
             "no_warnings": False,
         }
+        if output_kind == "mp4":
+            ydl_opts["merge_output_format"] = "mp4"
+        if output_kind == "mp3":
+            ydl_opts["postprocessors"] = [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }
+            ]
         if ffmpeg_path:
             ydl_opts["ffmpeg_location"] = os.path.dirname(ffmpeg_path)
 
