@@ -56,6 +56,34 @@ function Add-UserPath {
     }
 }
 
+function Add-VdScriptPaths {
+    $scriptDirs = @(
+        (python -c "import sysconfig; print(sysconfig.get_path('scripts'))"),
+        (python -c "import site, os; print(os.path.join(site.USER_BASE, 'Scripts'))")
+    )
+
+    foreach ($scriptDir in $scriptDirs) {
+        Add-UserPath -PathToAdd $scriptDir
+    }
+
+    $searchRoots = @(
+        (Join-Path $env:APPDATA "Python"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Python"),
+        (Join-Path $env:LOCALAPPDATA "Packages")
+    )
+
+    foreach ($root in $searchRoots) {
+        if (-not (Test-Path $root)) {
+            continue
+        }
+
+        Get-ChildItem -Path $root -Filter "vd.exe" -Recurse -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                Add-UserPath -PathToAdd $_.DirectoryName
+            }
+    }
+}
+
 Write-Host "Installiere mp4-downloader..."
 
 Ensure-WingetPackage -PackageId "Python.Python.3.12" -CommandName "python" -DisplayName "Python"
@@ -78,14 +106,7 @@ Write-Host "Installiere vd-Befehl..."
 python -m pip install --upgrade pip
 python -m pip install --upgrade $sourceDir
 
-$scriptDirs = @(
-    (python -c "import sysconfig; print(sysconfig.get_path('scripts'))"),
-    (python -c "import site, os; print(os.path.join(site.USER_BASE, 'Scripts'))")
-)
-
-foreach ($scriptDir in $scriptDirs) {
-    Add-UserPath -PathToAdd $scriptDir
-}
+Add-VdScriptPaths
 
 if (-not (Test-Command "vd")) {
     Write-Host ""
