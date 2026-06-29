@@ -31,6 +31,31 @@ function Ensure-WingetPackage {
     winget install --id $PackageId --exact --source winget --accept-package-agreements --accept-source-agreements
 }
 
+function Add-UserPath {
+    param([Parameter(Mandatory = $true)][string]$PathToAdd)
+
+    if (-not $PathToAdd -or -not (Test-Path $PathToAdd)) {
+        return
+    }
+
+    $currentUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $pathParts = @()
+    if ($currentUserPath) {
+        $pathParts = $currentUserPath -split ";" | Where-Object { $_ }
+    }
+
+    if ($pathParts -notcontains $PathToAdd) {
+        $newUserPath = (@($pathParts) + $PathToAdd) -join ";"
+        [Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
+        Write-Host "PATH erweitert: $PathToAdd"
+    }
+
+    $processParts = @($env:Path -split ";" | Where-Object { $_ })
+    if ($processParts -notcontains $PathToAdd) {
+        $env:Path = (@($processParts) + $PathToAdd) -join ";"
+    }
+}
+
 Write-Host "Installiere mp4-downloader..."
 
 Ensure-WingetPackage -PackageId "Python.Python.3.12" -CommandName "python" -DisplayName "Python"
@@ -52,6 +77,21 @@ Move-Item $expandedDir $sourceDir
 Write-Host "Installiere vd-Befehl..."
 python -m pip install --upgrade pip
 python -m pip install --upgrade $sourceDir
+
+$scriptDirs = @(
+    (python -c "import sysconfig; print(sysconfig.get_path('scripts'))"),
+    (python -c "import site, os; print(os.path.join(site.USER_BASE, 'Scripts'))")
+)
+
+foreach ($scriptDir in $scriptDirs) {
+    Add-UserPath -PathToAdd $scriptDir
+}
+
+if (-not (Test-Command "vd")) {
+    Write-Host ""
+    Write-Host "Hinweis: vd wurde installiert, ist aber in diesem Terminal noch nicht sichtbar."
+    Write-Host "Schliesse PowerShell/CMD komplett und oeffne ein neues Terminal."
+}
 
 Write-Host ""
 Write-Host "Fertig. Schliesse dieses Terminal und oeffne ein neues."
