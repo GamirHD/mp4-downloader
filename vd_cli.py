@@ -16,11 +16,11 @@ except ImportError:  # pragma: no cover - handled at runtime
 
 APP_NAME = "mp4-downloader"
 QUALITY_OPTIONS = {
-    "best": ("Beste Qualitaet", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best"),
-    "1080p": ("1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]"),
-    "720p": ("720p", "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/best[height<=720]"),
-    "480p": ("480p", "bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/best[height<=480]"),
-    "small": ("Audio + Video klein", "worst[ext=mp4]/worst"),
+    "best": ("Beste Qualitaet", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
+    "1080p": ("1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
+    "720p": ("720p", "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/best[height<=720]", "mp4"),
+    "480p": ("480p", "bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/best[height<=480]", "mp4"),
+    "mp3": ("MP3", "bestaudio/best", "mp3"),
 }
 
 
@@ -204,16 +204,25 @@ def download(url: str, quality_key: str, folder: Path) -> None:
 
     folder.mkdir(parents=True, exist_ok=True)
     ffmpeg_path = shutil.which("ffmpeg")
-    _, format_selector = QUALITY_OPTIONS[quality_key]
+    _, format_selector, output_kind = QUALITY_OPTIONS[quality_key]
 
     options: dict[str, Any] = {
         "format": format_selector,
         "outtmpl": str(folder / "%(title).200s [%(id)s].%(ext)s"),
-        "merge_output_format": "mp4",
         "noplaylist": True,
         "quiet": False,
         "no_warnings": False,
     }
+    if output_kind == "mp4":
+        options["merge_output_format"] = "mp4"
+    if output_kind == "mp3":
+        options["postprocessors"] = [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }
+        ]
     if ffmpeg_path:
         options["ffmpeg_location"] = os.path.dirname(ffmpeg_path)
 
@@ -265,7 +274,7 @@ def settings_command(args: argparse.Namespace) -> int:
 
 
 def qualities_command() -> int:
-    for key, (label, _) in QUALITY_OPTIONS.items():
+    for key, (label, _, _) in QUALITY_OPTIONS.items():
         print(f"{key:6} {label}")
     return 0
 
@@ -273,7 +282,7 @@ def qualities_command() -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="vd",
-        description="Video per Link als MP4 herunterladen.",
+        description="Video per Link als MP4 oder MP3 herunterladen.",
     )
     parser.add_argument("url", nargs="?", help="Video-Link, z. B. ein YouTube-Link")
     parser.add_argument("--quality", "-q", choices=list(QUALITY_OPTIONS), help="Qualitaet direkt auswaehlen")

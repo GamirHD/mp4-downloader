@@ -1,13 +1,13 @@
 # mp4-downloader
 
-Desktop and console app for downloading supported video links as MP4.
+Desktop and console app for downloading supported video links as MP4 or MP3.
 
 ## Features
 
 - Paste a video link
-- Select quality: best, 1080p, 720p, 480p, or small
+- Select quality: best, 1080p, 720p, 480p, or MP3
 - Choose a download folder
-- Download as MP4 with progress and status output
+- Download as MP4 or MP3 with progress and status output
 - Console command: `vd <link>`
 - Arrow-key terminal menus for quality and settings
 - Saved default download folder with `vd settings`
@@ -47,7 +47,7 @@ After that you can use it from CMD or PowerShell:
 vd "https://www.youtube.com/watch?v=..."
 ```
 
-The command asks for the quality, then starts the download. By default it saves into your Windows `Downloads` folder.
+The command asks for the quality or MP3, then starts the download. By default it saves into your Windows `Downloads` folder.
 Use the arrow keys to choose a quality and press Enter.
 
 Open settings:
@@ -74,6 +74,12 @@ Skip the quality question:
 
 ```cmd
 vd "https://www.youtube.com/watch?v=..." --quality 720p
+```
+
+Download audio as MP3:
+
+```cmd
+vd "https://www.youtube.com/watch?v=..." --quality mp3
 ```
 
 Available qualities:
