@@ -12,6 +12,9 @@ Desktop and console app for downloading supported video links as MP4 or MP3.
 - Windows GUI executable in GitHub releases
 - Arrow-key terminal menus for quality and settings
 - Saved default download folder with `vd settings`
+- GUI uses and updates the same saved default download folder
+- GUI button for opening the current download folder
+- GUI button for clearing the status log
 - Windows folder picker for changing the default download folder
 - Clearer messages when YouTube blocks a link or asks for cookies/login
 

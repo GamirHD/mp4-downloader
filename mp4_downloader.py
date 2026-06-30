@@ -3,11 +3,15 @@ from __future__ import annotations
 import os
 import queue
 import shutil
+import subprocess
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
+
+from vd_cli import QUALITY_OPTIONS, friendly_error, load_settings, save_settings
 
 try:
     import yt_dlp
@@ -18,13 +22,9 @@ except ImportError:  # pragma: no cover - handled in GUI startup
 APP_TITLE = "MP4/MP3 Downloader"
 
 
-QUALITY_OPTIONS = {
-    "Beste Qualitaet": ("bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
-    "1080p": ("bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
-    "720p": ("bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/best[height<=720]", "mp4"),
-    "480p": ("bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/best[height<=480]", "mp4"),
-    "MP3": ("bestaudio/best", "mp3"),
-}
+GUI_QUALITY_KEYS = list(QUALITY_OPTIONS)
+GUI_QUALITY_LABELS = {key: values[0] for key, values in QUALITY_OPTIONS.items()}
+GUI_QUALITY_CHOICES = [f"{key} - {GUI_QUALITY_LABELS[key]}" for key in GUI_QUALITY_KEYS]
 
 
 class QueueLogger:
@@ -55,10 +55,11 @@ class DownloaderApp(tk.Tk):
 
         self.messages: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.download_thread: threading.Thread | None = None
+        self.settings = load_settings()
 
         self.url_var = tk.StringVar()
-        self.folder_var = tk.StringVar(value=str(Path.home() / "Downloads"))
-        self.quality_var = tk.StringVar(value="Beste Qualitaet")
+        self.folder_var = tk.StringVar(value=self.settings["download_dir"])
+        self.quality_var = tk.StringVar(value=GUI_QUALITY_CHOICES[0])
         self.status_var = tk.StringVar(value="Bereit")
         self.progress_var = tk.DoubleVar(value=0)
 
@@ -91,24 +92,27 @@ class DownloaderApp(tk.Tk):
         options.columnconfigure(1, weight=1)
 
         ttk.Label(options, text="Qualitaet").grid(row=0, column=0, sticky="w")
-        ttk.Combobox(
+        quality_box = ttk.Combobox(
             options,
             textvariable=self.quality_var,
-            values=list(QUALITY_OPTIONS.keys()),
+            values=GUI_QUALITY_CHOICES,
             state="readonly",
             width=22,
-        ).grid(row=0, column=1, sticky="w", padx=(10, 20))
+        )
+        quality_box.grid(row=0, column=1, sticky="w", padx=(10, 20))
 
         ttk.Label(options, text="Ordner").grid(row=1, column=0, sticky="w", pady=(10, 0))
         ttk.Entry(options, textvariable=self.folder_var).grid(row=1, column=1, sticky="ew", padx=(10, 10), pady=(10, 0))
         ttk.Button(options, text="Waehlen", command=self._choose_folder).grid(row=1, column=2, pady=(10, 0))
+        ttk.Button(options, text="Oeffnen", command=self._open_folder).grid(row=1, column=3, padx=(8, 0), pady=(10, 0))
 
         action_frame = ttk.Frame(root)
         action_frame.grid(row=3, column=0, sticky="ew", pady=(2, 10))
-        action_frame.columnconfigure(1, weight=1)
+        action_frame.columnconfigure(2, weight=1)
         self.download_button = ttk.Button(action_frame, text="Download starten", command=self._start_download)
         self.download_button.grid(row=0, column=0, sticky="w")
-        ttk.Label(action_frame, textvariable=self.status_var).grid(row=0, column=1, sticky="e")
+        ttk.Button(action_frame, text="Log leeren", command=self._clear_log).grid(row=0, column=1, sticky="w", padx=(10, 0))
+        ttk.Label(action_frame, textvariable=self.status_var).grid(row=0, column=2, sticky="e")
 
         self.progress = ttk.Progressbar(root, variable=self.progress_var, maximum=100)
         self.progress.grid(row=4, column=0, sticky="ew", pady=(0, 12))
@@ -134,6 +138,27 @@ class DownloaderApp(tk.Tk):
         folder = filedialog.askdirectory(initialdir=self.folder_var.get() or str(Path.home()))
         if folder:
             self.folder_var.set(folder)
+            self.settings["download_dir"] = folder
+            save_settings(self.settings)
+            self._log(f"Downloadordner gespeichert: {folder}")
+
+    def _open_folder(self) -> None:
+        folder = Path(self.folder_var.get()).expanduser()
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            if os.name == "nt":
+                os.startfile(folder)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(folder)])
+            else:
+                subprocess.Popen(["xdg-open", str(folder)])
+        except Exception as exc:  # noqa: BLE001 - OS integration boundary
+            messagebox.showerror(APP_TITLE, f"Ordner kann nicht geoeffnet werden:\n{exc}")
+
+    def _clear_log(self) -> None:
+        self.log_text.configure(state="normal")
+        self.log_text.delete("1.0", "end")
+        self.log_text.configure(state="disabled")
 
     def _start_download(self) -> None:
         if self.download_thread and self.download_thread.is_alive():
@@ -141,7 +166,7 @@ class DownloaderApp(tk.Tk):
 
         url = self.url_var.get().strip()
         folder = Path(self.folder_var.get()).expanduser()
-        quality = self.quality_var.get()
+        quality = self.quality_var.get().split(" - ", 1)[0]
 
         if yt_dlp is None:
             messagebox.showerror(APP_TITLE, "yt-dlp ist nicht installiert.")
@@ -149,11 +174,14 @@ class DownloaderApp(tk.Tk):
         if not url:
             messagebox.showwarning(APP_TITLE, "Bitte einen Video-Link einfuegen.")
             return
-        if not folder:
-            messagebox.showwarning(APP_TITLE, "Bitte einen Download-Ordner auswaehlen.")
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            messagebox.showerror(APP_TITLE, f"Download-Ordner kann nicht erstellt werden:\n{exc}")
             return
 
-        folder.mkdir(parents=True, exist_ok=True)
+        self.settings["download_dir"] = str(folder)
+        save_settings(self.settings)
         self.progress_var.set(0)
         self.status_var.set("Download laeuft...")
         self.download_button.configure(state="disabled")
@@ -161,12 +189,12 @@ class DownloaderApp(tk.Tk):
 
         self.download_thread = threading.Thread(
             target=self._download_worker,
-            args=(url, folder, QUALITY_OPTIONS[quality]),
+            args=(url, folder, quality),
             daemon=True,
         )
         self.download_thread.start()
 
-    def _download_worker(self, url: str, folder: Path, quality: tuple[str, str]) -> None:
+    def _download_worker(self, url: str, folder: Path, quality_key: str) -> None:
         def hook(data: dict[str, Any]) -> None:
             status = data.get("status")
             if status == "downloading":
@@ -184,7 +212,7 @@ class DownloaderApp(tk.Tk):
                 if filename:
                     self.messages.put(("log", f"Heruntergeladen: {filename}"))
 
-        format_selector, output_kind = quality
+        _, format_selector, output_kind = QUALITY_OPTIONS[quality_key]
         ffmpeg_path = shutil.which("ffmpeg")
         ydl_opts: dict[str, Any] = {
             "format": format_selector,
@@ -214,21 +242,7 @@ class DownloaderApp(tk.Tk):
             title = info.get("title", "Video") if isinstance(info, dict) else "Video"
             self.messages.put(("done", f"Fertig: {title}"))
         except Exception as exc:  # noqa: BLE001 - user-facing GUI boundary
-            self.messages.put(("error", self._friendly_error(str(exc))))
-
-    def _friendly_error(self, raw_error: str) -> str:
-        text = raw_error.strip()
-        lower = text.lower()
-        if "sign in to confirm" in lower or "bot" in lower or "cookies" in lower:
-            return (
-                "YouTube verlangt fuer diesen Link eine Browser-Session oder blockiert den Zugriff. "
-                "Teste ein anderes Video oder nutze die App auf deinem eigenen PC mit normalem Netzwerk."
-            )
-        if "ffmpeg" in lower:
-            return "ffmpeg fehlt oder wurde nicht gefunden. Bitte ffmpeg installieren und danach erneut starten."
-        if "unsupported url" in lower:
-            return "Dieser Link wird nicht unterstuetzt. Bitte pruefe die URL."
-        return text
+            self.messages.put(("error", friendly_error(str(exc))))
 
     def _poll_messages(self) -> None:
         while True:
