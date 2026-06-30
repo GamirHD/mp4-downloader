@@ -10,6 +10,7 @@ Desktop and console app for downloading supported video links as MP4 or MP3.
 - Download one or more links as MP4 or MP3 with progress and status output
 - Console command: `vd <link>`
 - Windows and Linux GUI executables in GitHub releases
+- Linux CLI installer for the `vd` command
 - Arrow-key terminal menus for quality and settings
 - Saved default download folder with `vd settings`
 - GUI uses and updates the same saved default download folder
@@ -23,10 +24,11 @@ Desktop and console app for downloading supported video links as MP4 or MP3.
 
 - Python 3.10 or newer
 - ffmpeg installed and available in `PATH`
+- Linux CLI installer: `python3-venv` package installed
 
 ## Console usage
 
-Install with PowerShell:
+Install on Windows with PowerShell:
 
 ```powershell
 iwr -useb https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.ps1 | iex
@@ -34,10 +36,30 @@ iwr -useb https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.
 
 After installing, close the terminal and open a new CMD or PowerShell window.
 
-Uninstall:
+Uninstall on Windows:
 
 ```powershell
 iwr -useb https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/uninstall.ps1 | iex
+```
+
+Install on Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.sh | bash
+```
+
+If the installer says `python3-venv` is missing, install it first:
+
+```bash
+sudo apt install python3-venv
+```
+
+After installing, open a new terminal if `~/.local/bin` was added to `PATH`.
+
+Uninstall on Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/uninstall.sh | bash
 ```
 
 Install from a downloaded project folder:
@@ -46,13 +68,13 @@ Install from a downloaded project folder:
 python -m pip install .
 ```
 
-After that you can use it from CMD or PowerShell:
+After that you can use it from CMD, PowerShell, or a Linux terminal:
 
 ```cmd
 vd "https://www.youtube.com/watch?v=..."
 ```
 
-The command asks for the quality or MP3, then starts the download. By default it saves into your Windows `Downloads` folder.
+The command asks for the quality or MP3, then starts the download. By default it saves into your `Downloads` folder.
 Use the arrow keys to choose a quality and press Enter.
 
 Download multiple links in one run:
@@ -67,12 +89,18 @@ Open settings:
 vd settings
 ```
 
-Choose `Change Directory` to open the Windows folder picker and save a new default download folder.
+Choose `Change Directory` to save a new default download folder. On Windows this opens the folder picker; on Linux it asks for a path in the terminal.
 
 Change the default download folder:
 
 ```cmd
 vd settings --folder "C:\Users\Kadir\Downloads\Videos"
+```
+
+Linux example:
+
+```bash
+vd settings --folder "$HOME/Videos"
 ```
 
 Download once into a different folder:
