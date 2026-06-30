@@ -8,6 +8,7 @@ source_dir="$install_root/source"
 venv_dir="$install_root/venv"
 bin_dir="$HOME/.local/bin"
 tmp_dir="$(mktemp -d)"
+os_name="$(uname -s)"
 
 cleanup() {
   rm -rf "$tmp_dir"
@@ -21,7 +22,7 @@ need_command() {
   fi
 }
 
-echo "Installiere mp4-downloader fuer Linux..."
+echo "Installiere mp4-downloader fuer Linux/macOS..."
 
 need_command python3
 need_command curl
@@ -32,6 +33,7 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
   echo "  sudo apt install ffmpeg" >&2
   echo "  sudo dnf install ffmpeg" >&2
   echo "  sudo pacman -S ffmpeg" >&2
+  echo "  brew install ffmpeg" >&2
 fi
 
 rm -rf "$install_root"
@@ -45,8 +47,13 @@ mv "$tmp_dir/mp4-downloader-main" "$source_dir"
 echo "Erstelle lokale Python-Umgebung..."
 if ! python3 -m venv "$venv_dir"; then
   echo "Konnte keine Python-venv erstellen." >&2
-  echo "Installiere das venv-Paket, z. B. unter Debian/Ubuntu:" >&2
-  echo "  sudo apt install python3-venv" >&2
+  if [[ "$os_name" == "Darwin" ]]; then
+    echo "Installiere Python ueber Homebrew und versuche es erneut:" >&2
+    echo "  brew install python" >&2
+  else
+    echo "Installiere das venv-Paket, z. B. unter Debian/Ubuntu:" >&2
+    echo "  sudo apt install python3-venv" >&2
+  fi
   exit 1
 fi
 

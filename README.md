@@ -9,8 +9,8 @@ Desktop and console app for downloading supported video links as MP4 or MP3.
 - Choose a download folder
 - Download one or more links as MP4 or MP3 with progress and status output
 - Console command: `vd <link>`
-- Windows and Linux GUI executables in GitHub releases
-- Linux CLI installer for the `vd` command
+- Windows, Linux, and macOS GUI executables in GitHub releases
+- Linux/macOS CLI installer for the `vd` command
 - Arrow-key terminal menus for quality and settings
 - Saved default download folder with `vd settings`
 - GUI uses and updates the same saved default download folder
@@ -63,6 +63,26 @@ Make sure `ffmpeg` works before downloading:
 ffmpeg -version
 ```
 
+### macOS
+
+Install Homebrew first if you do not already have it:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Then install the required tools before using the CLI installer or the macOS GUI:
+
+```bash
+brew install python ffmpeg curl
+```
+
+Make sure `ffmpeg` works before downloading:
+
+```bash
+ffmpeg -version
+```
+
 ## Console usage
 
 Install on Windows with PowerShell:
@@ -79,7 +99,7 @@ Uninstall on Windows:
 iwr -useb https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/uninstall.ps1 | iex
 ```
 
-Install on Linux:
+Install on Linux or macOS:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.sh | bash
@@ -87,7 +107,7 @@ curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install
 
 After installing, open a new terminal if `~/.local/bin` was added to `PATH`.
 
-Uninstall on Linux:
+Uninstall on Linux or macOS:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/uninstall.sh | bash
@@ -99,7 +119,7 @@ Install from a downloaded project folder:
 python -m pip install .
 ```
 
-After that you can use it from CMD, PowerShell, or a Linux terminal:
+After that you can use it from CMD, PowerShell, or a Linux/macOS terminal:
 
 ```cmd
 vd "https://www.youtube.com/watch?v=..."
@@ -120,7 +140,7 @@ Open settings:
 vd settings
 ```
 
-Choose `Change Directory` to save a new default download folder. On Windows this opens the folder picker; on Linux it asks for a path in the terminal.
+Choose `Change Directory` to save a new default download folder. On Windows this opens the folder picker; on Linux/macOS it asks for a path in the terminal.
 
 Change the default download folder:
 
@@ -128,7 +148,7 @@ Change the default download folder:
 vd settings --folder "C:\Users\Kadir\Downloads\Videos"
 ```
 
-Linux example:
+Linux/macOS example:
 
 ```bash
 vd settings --folder "$HOME/Videos"
@@ -161,7 +181,8 @@ vd qualities
 ## Desktop usage
 
 For normal Windows use, download `mp4-downloader.exe` from the latest GitHub release and double-click it.
-For Linux, download `mp4-downloader`, make it executable, and run it.
+For Linux, download `mp4-downloader-linux`, make it executable, and run it.
+For macOS, download `mp4-downloader-macos`, make it executable, and run it.
 No CMD or project folder is needed.
 Paste one link per line to download several videos one after another.
 
@@ -183,6 +204,18 @@ Build the Linux GUI executable locally:
 
 ```bash
 ./build-linux-gui.sh
+```
+
+The executable will be created at:
+
+```text
+dist/mp4-downloader
+```
+
+Build the macOS GUI executable locally:
+
+```bash
+./build-macos-gui.sh
 ```
 
 The executable will be created at:
