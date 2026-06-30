@@ -67,7 +67,10 @@ jobs:
       - name: Rename release asset
         if: github.event_name == 'release'
         shell: bash
-        run: mv "${{ matrix.asset_path }}" "dist/${{ matrix.release_name }}"
+        run: |
+          if [ "${{ matrix.asset_path }}" != "dist/${{ matrix.release_name }}" ]; then
+            mv "${{ matrix.asset_path }}" "dist/${{ matrix.release_name }}"
+          fi
 
       - name: Attach executable to release
         if: github.event_name == 'release'
