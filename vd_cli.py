@@ -4,7 +4,9 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,7 @@ QUALITY_OPTIONS = {
     "480p": ("480p", "bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/best[height<=480]", "mp4"),
     "mp3": ("MP3", "bestaudio/best", "mp3"),
 }
+TRANSCRIPT_FORMATS = ("txt", "srt", "vtt", "json", "tsv", "all")
 
 
 def default_download_dir() -> Path:
@@ -69,6 +72,11 @@ def friendly_error(raw_error: str) -> str:
         )
     if "ffmpeg" in lower:
         return "ffmpeg fehlt oder wurde nicht gefunden. Installiere ffmpeg und starte das Terminal neu."
+    if "whisper" in lower:
+        return (
+            "Whisper fehlt oder konnte nicht gestartet werden. Installiere es mit "
+            "`python -m pip install -U openai-whisper` und versuche es erneut."
+        )
     if "unsupported url" in lower:
         return "Dieser Link wird nicht unterstuetzt. Bitte pruefe die URL."
     return text
@@ -254,6 +262,93 @@ def download(url: str, quality_key: str, folder: Path) -> None:
         downloader.download([url])
 
 
+def require_command(command: str, install_hint: str) -> str:
+    path = shutil.which(command)
+    if path:
+        return path
+    raise RuntimeError(f"{command} fehlt. {install_hint}")
+
+
+def transcribe(
+    url: str,
+    folder: Path,
+    *,
+    model: str = "base",
+    language: str | None = None,
+    output_format: str = "txt",
+    keep_audio: bool = False,
+) -> list[Path]:
+    if yt_dlp is None:
+        raise RuntimeError("yt-dlp ist nicht installiert. Fuehre zuerst `python -m pip install .` aus.")
+
+    ffmpeg_path = require_command("ffmpeg", "Installiere ffmpeg und starte das Terminal neu.")
+    whisper_path = require_command(
+        "whisper",
+        "Installiere Whisper mit `python -m pip install -U openai-whisper`.",
+    )
+    folder.mkdir(parents=True, exist_ok=True)
+    suffixes = [".txt", ".srt", ".vtt", ".json", ".tsv"] if output_format == "all" else [f".{output_format}"]
+    before_files = {
+        path.resolve()
+        for path in folder.iterdir()
+        if path.is_file() and path.suffix in suffixes
+    }
+
+    with tempfile.TemporaryDirectory(prefix="vd-transcribe-") as temporary_dir:
+        tmp_dir = Path(temporary_dir)
+        audio_template = str(tmp_dir / "%(title).180s [%(id)s].%(ext)s")
+        ydl_opts: dict[str, Any] = {
+            "format": "bestaudio/best",
+            "outtmpl": audio_template,
+            "noplaylist": True,
+            "quiet": False,
+            "no_warnings": False,
+            "ffmpeg_location": os.path.dirname(ffmpeg_path),
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }
+            ],
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as downloader:
+            info = downloader.extract_info(url, download=True)
+
+        audio_files = sorted(tmp_dir.glob("*.mp3"))
+        if not audio_files:
+            title = info.get("title", "audio") if isinstance(info, dict) else "audio"
+            raise RuntimeError(f"Audiodatei konnte nach dem Download nicht gefunden werden: {title}")
+
+        audio_path = audio_files[0]
+        command = [
+            whisper_path,
+            str(audio_path),
+            "--model",
+            model,
+            "--output_dir",
+            str(folder),
+            "--output_format",
+            output_format,
+        ]
+        if language:
+            command.extend(["--language", language])
+
+        subprocess.run(command, check=True)
+
+        if keep_audio:
+            target_audio = folder / audio_path.name
+            shutil.move(str(audio_path), target_audio)
+
+    output_files = [
+        path
+        for path in sorted(folder.iterdir())
+        if path.is_file() and path.suffix in suffixes and path.resolve() not in before_files
+    ]
+    return output_files
+
+
 def settings_command(args: argparse.Namespace) -> int:
     settings = load_settings()
     if args.folder:
@@ -303,6 +398,50 @@ def qualities_command() -> int:
     return 0
 
 
+def transcribe_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    folder = Path(args.folder or settings["download_dir"]).expanduser()
+    failures = 0
+
+    print(f"Zielordner: {folder}")
+    print(f"Whisper-Modell: {args.model}")
+    if args.language:
+        print(f"Sprache: {args.language}")
+    if len(args.urls) > 1:
+        print(f"Links: {len(args.urls)}")
+
+    for index, url in enumerate(args.urls, start=1):
+        if len(args.urls) > 1:
+            print()
+            print(f"[{index}/{len(args.urls)}] {url}")
+        try:
+            output_files = transcribe(
+                url,
+                folder,
+                model=args.model,
+                language=args.language,
+                output_format=args.format,
+                keep_audio=args.keep_audio,
+            )
+        except Exception as exc:  # noqa: BLE001 - CLI boundary
+            failures += 1
+            print(f"Fehler: {friendly_error(str(exc))}", file=sys.stderr)
+            continue
+
+        if output_files:
+            print("Transkript gespeichert:")
+            for path in output_files[-5:]:
+                print(f"  {path}")
+        else:
+            print("Transkription abgeschlossen.")
+
+    if failures:
+        print(f"Fertig mit Fehlern: {failures} von {len(args.urls)} fehlgeschlagen.", file=sys.stderr)
+        return 1
+
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="vd",
@@ -314,6 +453,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_transcribe_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="vd transcribe",
+        description="Social-Media-Video per Link herunterladen und als Text transkribieren.",
+    )
+    parser.add_argument("urls", nargs="+", help="Ein oder mehrere Video-Links, z. B. TikTok, Instagram, X/Twitter oder YouTube")
+    parser.add_argument("--folder", "-f", help="Zielordner fuer Transkriptdateien")
+    parser.add_argument("--model", default="base", help="Whisper-Modell, z. B. tiny, base, small, medium oder large")
+    parser.add_argument("--language", "-l", help="Gesprochene Sprache, z. B. de oder en. Ohne Angabe erkennt Whisper sie automatisch.")
+    parser.add_argument("--format", choices=TRANSCRIPT_FORMATS, default="txt", help="Ausgabeformat")
+    parser.add_argument("--keep-audio", action="store_true", help="Extrahierte MP3-Datei neben dem Transkript behalten")
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "settings":
@@ -322,6 +475,8 @@ def main(argv: list[str] | None = None) -> int:
         return settings_command(settings_parser.parse_args(argv[1:]))
     if argv and argv[0] == "qualities":
         return qualities_command()
+    if argv and argv[0] == "transcribe":
+        return transcribe_command(build_transcribe_parser().parse_args(argv[1:]))
 
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -332,6 +487,7 @@ def main(argv: list[str] | None = None) -> int:
         print("  vd settings              Settings-Menue oeffnen")
         print("  vd settings --folder PFAD Downloadordner aendern")
         print("  vd qualities             Qualitaeten anzeigen")
+        print("  vd transcribe LINK       Video in Textdatei transkribieren")
         return 2
 
     settings = load_settings()
