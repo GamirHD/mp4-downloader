@@ -34,4 +34,13 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+Filename: "{cmd}"; Parameters: "/C winget install --id Gyan.FFmpeg --exact --source winget --accept-package-agreements --accept-source-agreements"; StatusMsg: "Installing ffmpeg..."; Flags: runhidden waituntilterminated; Check: NeedsFfmpeg
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function NeedsFfmpeg: Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := not Exec(ExpandConstant('{cmd}'), '/C where ffmpeg', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0);
+end;

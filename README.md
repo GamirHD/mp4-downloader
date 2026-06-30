@@ -14,9 +14,12 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 
 ## Before Installing
 
-Install the system requirements first. The app needs `ffmpeg` for merging MP4 files and converting MP3 audio.
+The app needs `ffmpeg` for merging MP4 files and converting MP3 audio.
 
 ### Windows
+
+The Windows GUI setup can install `ffmpeg` automatically via `winget` if it is missing.
+For CLI usage or manual setup, run:
 
 ```powershell
 winget install --id Python.Python.3.12 --exact --source winget
@@ -74,9 +77,10 @@ Download the latest release:
 
 Windows recommended:
 
-1. Run the commands from `Before Installing`.
-2. Download `mp4-downloader-setup.exe`.
-3. Run the setup and start `mp4-downloader` from the Start menu or desktop shortcut.
+1. Download `mp4-downloader-setup.exe`.
+2. Run the setup.
+3. If `ffmpeg` is missing, the setup installs it automatically with `winget`.
+4. Start `mp4-downloader` from the Start menu or desktop shortcut.
 
 Windows portable:
 
