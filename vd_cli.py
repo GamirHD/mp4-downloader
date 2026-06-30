@@ -308,7 +308,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="vd",
         description="Video per Link als MP4 oder MP3 herunterladen.",
     )
-    parser.add_argument("url", nargs="?", help="Video-Link, z. B. ein YouTube-Link")
+    parser.add_argument("urls", nargs="*", help="Ein oder mehrere Video-Links, z. B. YouTube-Links")
     parser.add_argument("--quality", "-q", choices=list(QUALITY_OPTIONS), help="Qualitaet direkt auswaehlen")
     parser.add_argument("--folder", "-f", help="Nur fuer diesen Download einen anderen Ordner verwenden")
     return parser
@@ -325,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
-    if not args.url:
+    if not args.urls:
         parser.print_help()
         print()
         print("Weitere Befehle:")
@@ -340,11 +340,22 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Zielordner: {folder}")
     print(f"Qualitaet: {QUALITY_OPTIONS[quality_key][0]}")
+    if len(args.urls) > 1:
+        print(f"Links: {len(args.urls)}")
 
-    try:
-        download(args.url, quality_key, folder)
-    except Exception as exc:  # noqa: BLE001 - CLI boundary
-        print(f"Fehler: {friendly_error(str(exc))}", file=sys.stderr)
+    failures = 0
+    for index, url in enumerate(args.urls, start=1):
+        if len(args.urls) > 1:
+            print()
+            print(f"[{index}/{len(args.urls)}] {url}")
+        try:
+            download(url, quality_key, folder)
+        except Exception as exc:  # noqa: BLE001 - CLI boundary
+            failures += 1
+            print(f"Fehler: {friendly_error(str(exc))}", file=sys.stderr)
+
+    if failures:
+        print(f"Fertig mit Fehlern: {failures} von {len(args.urls)} fehlgeschlagen.", file=sys.stderr)
         return 1
 
     print("Download fertig.")

@@ -57,7 +57,6 @@ class DownloaderApp(tk.Tk):
         self.download_thread: threading.Thread | None = None
         self.settings = load_settings()
 
-        self.url_var = tk.StringVar()
         self.folder_var = tk.StringVar(value=self.settings["download_dir"])
         self.quality_var = tk.StringVar(value=GUI_QUALITY_CHOICES[0])
         self.status_var = tk.StringVar(value="Bereit")
@@ -81,11 +80,12 @@ class DownloaderApp(tk.Tk):
         title = ttk.Label(root, text=APP_TITLE, font=("TkDefaultFont", 18, "bold"))
         title.grid(row=0, column=0, sticky="w")
 
-        url_frame = ttk.LabelFrame(root, text="Video-Link", padding=12)
+        url_frame = ttk.LabelFrame(root, text="Video-Links", padding=12)
         url_frame.grid(row=1, column=0, sticky="ew", pady=(16, 10))
         url_frame.columnconfigure(0, weight=1)
-        ttk.Entry(url_frame, textvariable=self.url_var).grid(row=0, column=0, sticky="ew")
-        ttk.Button(url_frame, text="Einfuegen", command=self._paste_url).grid(row=0, column=1, padx=(10, 0))
+        self.url_text = tk.Text(url_frame, height=4, wrap="word")
+        self.url_text.grid(row=0, column=0, sticky="ew")
+        ttk.Button(url_frame, text="Einfuegen", command=self._paste_url).grid(row=0, column=1, sticky="n", padx=(10, 0))
 
         options = ttk.Frame(root)
         options.grid(row=2, column=0, sticky="ew", pady=(0, 10))
@@ -130,7 +130,13 @@ class DownloaderApp(tk.Tk):
 
     def _paste_url(self) -> None:
         try:
-            self.url_var.set(self.clipboard_get().strip())
+            text = self.clipboard_get().strip()
+            if not text:
+                self._log("Zwischenablage ist leer.")
+                return
+            if self.url_text.get("1.0", "end").strip():
+                self.url_text.insert("end", "\n")
+            self.url_text.insert("end", text)
         except tk.TclError:
             self._log("Zwischenablage ist leer.")
 
@@ -164,15 +170,15 @@ class DownloaderApp(tk.Tk):
         if self.download_thread and self.download_thread.is_alive():
             return
 
-        url = self.url_var.get().strip()
+        urls = self._read_urls()
         folder = Path(self.folder_var.get()).expanduser()
         quality = self.quality_var.get().split(" - ", 1)[0]
 
         if yt_dlp is None:
             messagebox.showerror(APP_TITLE, "yt-dlp ist nicht installiert.")
             return
-        if not url:
-            messagebox.showwarning(APP_TITLE, "Bitte einen Video-Link einfuegen.")
+        if not urls:
+            messagebox.showwarning(APP_TITLE, "Bitte mindestens einen Video-Link einfuegen.")
             return
         try:
             folder.mkdir(parents=True, exist_ok=True)
@@ -185,16 +191,23 @@ class DownloaderApp(tk.Tk):
         self.progress_var.set(0)
         self.status_var.set("Download laeuft...")
         self.download_button.configure(state="disabled")
-        self._log(f"Starte Download: {url}")
+        if len(urls) == 1:
+            self._log(f"Starte Download: {urls[0]}")
+        else:
+            self._log(f"Starte Batch-Download mit {len(urls)} Links.")
 
         self.download_thread = threading.Thread(
             target=self._download_worker,
-            args=(url, folder, quality),
+            args=(urls, folder, quality),
             daemon=True,
         )
         self.download_thread.start()
 
-    def _download_worker(self, url: str, folder: Path, quality_key: str) -> None:
+    def _read_urls(self) -> list[str]:
+        text = self.url_text.get("1.0", "end")
+        return [line.strip() for line in text.splitlines() if line.strip()]
+
+    def _download_worker(self, urls: list[str], folder: Path, quality_key: str) -> None:
         def hook(data: dict[str, Any]) -> None:
             status = data.get("status")
             if status == "downloading":
@@ -236,13 +249,29 @@ class DownloaderApp(tk.Tk):
         if ffmpeg_path:
             ydl_opts["ffmpeg_location"] = os.path.dirname(ffmpeg_path)
 
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as downloader:
-                info = downloader.extract_info(url, download=True)
-            title = info.get("title", "Video") if isinstance(info, dict) else "Video"
-            self.messages.put(("done", f"Fertig: {title}"))
-        except Exception as exc:  # noqa: BLE001 - user-facing GUI boundary
-            self.messages.put(("error", friendly_error(str(exc))))
+        failures: list[str] = []
+        for index, url in enumerate(urls, start=1):
+            if len(urls) > 1:
+                self.messages.put(("log", f"[{index}/{len(urls)}] {url}"))
+                self.messages.put(("status", f"Download {index} von {len(urls)} laeuft..."))
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as downloader:
+                    info = downloader.extract_info(url, download=True)
+                title = info.get("title", "Video") if isinstance(info, dict) else "Video"
+                self.messages.put(("log", f"Fertig: {title}"))
+            except Exception as exc:  # noqa: BLE001 - user-facing GUI boundary
+                message = friendly_error(str(exc))
+                failures.append(url)
+                self.messages.put(("log", f"Fehler bei {url}: {message}"))
+
+        if failures:
+            self.messages.put(("batch_error", f"{len(failures)} von {len(urls)} Downloads fehlgeschlagen."))
+            return
+
+        if len(urls) == 1:
+            self.messages.put(("done", "Download fertig."))
+        else:
+            self.messages.put(("done", f"Batch fertig: {len(urls)} Downloads abgeschlossen."))
 
     def _poll_messages(self) -> None:
         while True:
@@ -261,6 +290,11 @@ class DownloaderApp(tk.Tk):
                 self._log(str(payload))
                 self.status_var.set("Fertig")
                 self.download_button.configure(state="normal")
+            elif message_type == "batch_error":
+                self._log(f"Fehler: {payload}")
+                self.status_var.set("Fertig mit Fehlern")
+                self.download_button.configure(state="normal")
+                messagebox.showerror(APP_TITLE, str(payload))
             elif message_type == "error":
                 self._set_idle_error(str(payload))
 

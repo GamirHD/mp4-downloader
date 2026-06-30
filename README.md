@@ -7,7 +7,7 @@ Desktop and console app for downloading supported video links as MP4 or MP3.
 - Paste a video link
 - Select quality: best, 1080p, 720p, 480p, or MP3
 - Choose a download folder
-- Download as MP4 or MP3 with progress and status output
+- Download one or more links as MP4 or MP3 with progress and status output
 - Console command: `vd <link>`
 - Windows GUI executable in GitHub releases
 - Arrow-key terminal menus for quality and settings
@@ -15,6 +15,7 @@ Desktop and console app for downloading supported video links as MP4 or MP3.
 - GUI uses and updates the same saved default download folder
 - GUI button for opening the current download folder
 - GUI button for clearing the status log
+- Batch downloads from multiple pasted links
 - Windows folder picker for changing the default download folder
 - Clearer messages when YouTube blocks a link or asks for cookies/login
 
@@ -53,6 +54,12 @@ vd "https://www.youtube.com/watch?v=..."
 
 The command asks for the quality or MP3, then starts the download. By default it saves into your Windows `Downloads` folder.
 Use the arrow keys to choose a quality and press Enter.
+
+Download multiple links in one run:
+
+```cmd
+vd "https://www.youtube.com/watch?v=..." "https://www.youtube.com/watch?v=..."
+```
 
 Open settings:
 
@@ -96,6 +103,7 @@ vd qualities
 
 For normal Windows use, download `mp4-downloader.exe` from the latest GitHub release and double-click it.
 No CMD in the project folder is needed.
+Paste one link per line to download several videos one after another.
 
 The GUI still needs `ffmpeg` available in `PATH` for merging MP4 files and converting MP3 audio.
 
