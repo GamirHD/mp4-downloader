@@ -20,11 +20,48 @@ Desktop and console app for downloading supported video links as MP4 or MP3.
 - Windows folder picker for changing the default download folder
 - Clearer messages when YouTube blocks a link or asks for cookies/login
 
-## Requirements
+## Before installing
 
-- Python 3.10 or newer
-- ffmpeg installed and available in `PATH`
-- Linux CLI installer: `python3-venv` package installed
+Install the system requirements first. The app needs `ffmpeg` for merging MP4 files and converting MP3 audio.
+
+### Windows
+
+The PowerShell installer can install Python and ffmpeg automatically via `winget`.
+If you want to install them manually first, run:
+
+```powershell
+winget install --id Python.Python.3.12 --exact --source winget
+winget install --id Gyan.FFmpeg --exact --source winget
+```
+
+After installing, close the terminal and open a new CMD or PowerShell window.
+
+### Linux
+
+On Debian or Ubuntu, install these before using the CLI installer or the Linux GUI:
+
+```bash
+sudo apt update
+sudo apt install python3 python3-venv ffmpeg curl
+```
+
+On Fedora:
+
+```bash
+sudo dnf install python3 ffmpeg curl
+```
+
+On Arch Linux:
+
+```bash
+sudo pacman -S python ffmpeg curl
+```
+
+Make sure `ffmpeg` works before downloading:
+
+```bash
+ffmpeg -version
+```
 
 ## Console usage
 
@@ -46,12 +83,6 @@ Install on Linux:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.sh | bash
-```
-
-If the installer says `python3-venv` is missing, install it first:
-
-```bash
-sudo apt install python3-venv
 ```
 
 After installing, open a new terminal if `~/.local/bin` was added to `PATH`.
