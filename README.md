@@ -9,7 +9,6 @@ Desktop and console app for downloading supported video links as MP4 or MP3.
 - Choose a download folder
 - Download one or more links as MP4 or MP3 with progress and status output
 - Console command: `vd <link>`
-- Transcribe social-media videos to text files with `vd transcribe`
 - Windows, Linux, and macOS GUI executables in GitHub releases
 - Linux/macOS CLI installer for the `vd` command
 - Arrow-key terminal menus for quality and settings
@@ -36,12 +35,6 @@ winget install --id Gyan.FFmpeg --exact --source winget
 ```
 
 After installing, close the terminal and open a new CMD or PowerShell window.
-
-For transcription, install Whisper as well:
-
-```powershell
-python -m pip install -U openai-whisper
-```
 
 ### Linux
 
@@ -70,12 +63,6 @@ Make sure `ffmpeg` works before downloading:
 ffmpeg -version
 ```
 
-For transcription, install Whisper as well:
-
-```bash
-python3 -m pip install -U openai-whisper
-```
-
 ### macOS
 
 Install Homebrew first if you do not already have it:
@@ -94,12 +81,6 @@ Make sure `ffmpeg` works before downloading:
 
 ```bash
 ffmpeg -version
-```
-
-For transcription, install Whisper as well:
-
-```bash
-python3 -m pip install -U openai-whisper
 ```
 
 ## Console usage
@@ -195,32 +176,6 @@ Available qualities:
 
 ```cmd
 vd qualities
-```
-
-Transcribe a social-media video link to a text file:
-
-```cmd
-vd transcribe "https://www.tiktok.com/@user/video/..."
-```
-
-This also works with other links supported by `yt-dlp`, for example Instagram, X/Twitter, YouTube, or similar video pages. The command downloads the audio, runs local Whisper, and writes the transcript into your download folder.
-
-Choose a Whisper model:
-
-```cmd
-vd transcribe "https://www.instagram.com/reel/..." --model small
-```
-
-Force German speech recognition:
-
-```cmd
-vd transcribe "https://x.com/user/status/..." --language de
-```
-
-Write subtitles instead of plain text:
-
-```cmd
-vd transcribe "https://www.youtube.com/watch?v=..." --format srt
 ```
 
 ## Desktop usage
