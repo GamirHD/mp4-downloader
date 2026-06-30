@@ -50,6 +50,18 @@ jobs:
         if: runner.os == 'Windows'
         run: python -m PyInstaller --onefile --windowed --name mp4-downloader run.py
 
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build Windows GUI setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = (python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          $env:APP_VERSION = $version
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer-windows.iss
+
       - name: Build Linux GUI executable
         if: runner.os == 'Linux'
         run: python -m PyInstaller --onefile --name mp4-downloader run.py
@@ -77,3 +89,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.event.release.tag_name }}" "dist/${{ matrix.release_name }}" --clobber
+
+      - name: Attach Windows setup to release
+        if: github.event_name == 'release' && runner.os == 'Windows'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "dist/mp4-downloader-setup.exe" --clobber

@@ -1,230 +1,169 @@
 # mp4-downloader
 
-Desktop and console app for downloading supported video links as MP4 or MP3.
+Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 
 ## Features
 
-- Paste a video link
-- Select quality: best, 1080p, 720p, 480p, or MP3
-- Choose a download folder
-- Download one or more links as MP4 or MP3 with progress and status output
-- Console command: `vd <link>`
-- Windows, Linux, and macOS GUI executables in GitHub releases
-- Linux/macOS CLI installer for the `vd` command
-- Arrow-key terminal menus for quality and settings
-- Saved default download folder with `vd settings`
-- GUI uses and updates the same saved default download folder
-- GUI button for opening the current download folder
-- GUI button for clearing the status log
-- Batch downloads from multiple pasted links
-- Windows folder picker for changing the default download folder
-- Clearer messages when YouTube blocks a link or asks for cookies/login
+- Download one or more video links as MP4 or MP3
+- Quality choices: best, 1080p, 720p, 480p, MP3
+- Windows/Linux/macOS GUI builds in GitHub releases
+- Windows setup installer for the GUI
+- CLI command: `vd "https://..."`
+- Saved default download folder shared by GUI and CLI
+- Clearer error messages for common YouTube blocks
 
-## Before installing
+## Before Installing
 
 Install the system requirements first. The app needs `ffmpeg` for merging MP4 files and converting MP3 audio.
 
 ### Windows
-
-The PowerShell installer can install Python and ffmpeg automatically via `winget`.
-If you want to install them manually first, run:
 
 ```powershell
 winget install --id Python.Python.3.12 --exact --source winget
 winget install --id Gyan.FFmpeg --exact --source winget
 ```
 
-After installing, close the terminal and open a new CMD or PowerShell window.
+Close the terminal afterwards and open a new CMD or PowerShell window.
 
 ### Linux
 
-On Debian or Ubuntu, install these before using the CLI installer or the Linux GUI:
+Debian/Ubuntu:
 
 ```bash
 sudo apt update
 sudo apt install python3 python3-venv ffmpeg curl
 ```
 
-On Fedora:
+Fedora:
 
 ```bash
 sudo dnf install python3 ffmpeg curl
 ```
 
-On Arch Linux:
+Arch Linux:
 
 ```bash
 sudo pacman -S python ffmpeg curl
 ```
 
-Make sure `ffmpeg` works before downloading:
-
-```bash
-ffmpeg -version
-```
-
 ### macOS
 
-Install Homebrew first if you do not already have it:
+Install Homebrew if needed:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-Then install the required tools before using the CLI installer or the macOS GUI:
+Then install the tools:
 
 ```bash
 brew install python ffmpeg curl
 ```
 
-Make sure `ffmpeg` works before downloading:
+Check `ffmpeg` on any system with:
 
 ```bash
 ffmpeg -version
 ```
 
-## Console usage
+## GUI Installation
 
-Install on Windows with PowerShell:
+Download the latest release:
+
+`https://github.com/GamirHD/mp4-downloader/releases/latest`
+
+Windows recommended:
+
+1. Run the commands from `Before Installing`.
+2. Download `mp4-downloader-setup.exe`.
+3. Run the setup and start `mp4-downloader` from the Start menu or desktop shortcut.
+
+Windows portable:
+
+- Download `mp4-downloader.exe` and double-click it.
+
+Linux:
+
+```bash
+chmod +x mp4-downloader-linux
+./mp4-downloader-linux
+```
+
+macOS:
+
+```bash
+chmod +x mp4-downloader-macos
+./mp4-downloader-macos
+```
+
+If macOS blocks the unsigned app, allow it in System Settings or remove quarantine:
+
+```bash
+xattr -d com.apple.quarantine mp4-downloader-macos
+```
+
+## CLI Installation
+
+Windows:
 
 ```powershell
 iwr -useb https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.ps1 | iex
 ```
 
-After installing, close the terminal and open a new CMD or PowerShell window.
-
-Uninstall on Windows:
-
-```powershell
-iwr -useb https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/uninstall.ps1 | iex
-```
-
-Install on Linux or macOS:
+Linux/macOS:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.sh | bash
 ```
 
-After installing, open a new terminal if `~/.local/bin` was added to `PATH`.
+After installing, open a new terminal if needed.
 
-Uninstall on Linux or macOS:
+Uninstall:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/uninstall.ps1 | iex
+```
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/uninstall.sh | bash
 ```
 
-Install from a downloaded project folder:
+## CLI Usage
 
-```cmd
-python -m pip install .
-```
+Download with the interactive quality menu:
 
-After that you can use it from CMD, PowerShell, or a Linux/macOS terminal:
-
-```cmd
+```bash
 vd "https://www.youtube.com/watch?v=..."
 ```
 
-The command asks for the quality or MP3, then starts the download. By default it saves into your `Downloads` folder.
-Use the arrow keys to choose a quality and press Enter.
+Download multiple links:
 
-Download multiple links in one run:
-
-```cmd
+```bash
 vd "https://www.youtube.com/watch?v=..." "https://www.youtube.com/watch?v=..."
 ```
 
-Open settings:
-
-```cmd
-vd settings
-```
-
-Choose `Change Directory` to save a new default download folder. On Windows this opens the folder picker; on Linux/macOS it asks for a path in the terminal.
-
-Change the default download folder:
-
-```cmd
-vd settings --folder "C:\Users\Kadir\Downloads\Videos"
-```
-
-Linux/macOS example:
+Skip the quality menu:
 
 ```bash
-vd settings --folder "$HOME/Videos"
-```
-
-Download once into a different folder:
-
-```cmd
-vd "https://www.youtube.com/watch?v=..." --folder "C:\Users\Kadir\Desktop"
-```
-
-Skip the quality question:
-
-```cmd
 vd "https://www.youtube.com/watch?v=..." --quality 720p
-```
-
-Download audio as MP3:
-
-```cmd
 vd "https://www.youtube.com/watch?v=..." --quality mp3
 ```
 
-Available qualities:
+Use another folder once:
 
-```cmd
+```bash
+vd "https://www.youtube.com/watch?v=..." --folder "$HOME/Videos"
+```
+
+Settings and qualities:
+
+```bash
+vd settings
+vd settings --folder "$HOME/Videos"
 vd qualities
 ```
 
-## Desktop usage
-
-For normal Windows use, download `mp4-downloader.exe` from the latest GitHub release and double-click it.
-For Linux, download `mp4-downloader-linux`, make it executable, and run it.
-For macOS, download `mp4-downloader-macos`, make it executable, and run it.
-No CMD or project folder is needed.
-Paste one link per line to download several videos one after another.
-
-The GUI still needs `ffmpeg` available in `PATH` for merging MP4 files and converting MP3 audio.
-
-Build the Windows GUI executable locally:
-
-```powershell
-.\build-windows-gui.ps1
-```
-
-The executable will be created at:
-
-```text
-dist\mp4-downloader.exe
-```
-
-Build the Linux GUI executable locally:
-
-```bash
-./build-linux-gui.sh
-```
-
-The executable will be created at:
-
-```text
-dist/mp4-downloader
-```
-
-Build the macOS GUI executable locally:
-
-```bash
-./build-macos-gui.sh
-```
-
-The executable will be created at:
-
-```text
-dist/mp4-downloader
-```
-
-Run from source:
+## Development
 
 Install dependencies:
 
@@ -232,12 +171,25 @@ Install dependencies:
 python -m pip install -r requirements.txt
 ```
 
-Run:
+Run from source:
 
 ```bash
 python run.py
 ```
 
+Build GUI locally:
+
+```bash
+./build-linux-gui.sh
+./build-macos-gui.sh
+```
+
+Windows:
+
+```powershell
+.\build-windows-gui.ps1
+```
+
 ## Notes
 
-The app uses `yt-dlp`. Some YouTube videos may still fail when YouTube requires login, cookies, or bot verification. Running the app locally on your own PC is usually more reliable than running it on a VPS.
+The app uses `yt-dlp`. Some YouTube videos may fail when YouTube requires login, cookies, or bot verification. Running the app locally on your own PC is usually more reliable than running it on a VPS.
