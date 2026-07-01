@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import queue
-import shutil
 import subprocess
 import sys
 import threading
@@ -11,7 +10,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
-from vd_cli import QUALITY_OPTIONS, friendly_error, load_settings, save_settings
+from vd_cli import BROWSER_CHOICES, QUALITY_OPTIONS, build_ydl_options, friendly_error, load_settings, save_settings
 
 try:
     import yt_dlp
@@ -25,6 +24,7 @@ APP_TITLE = "MP4/MP3 Downloader"
 GUI_QUALITY_KEYS = list(QUALITY_OPTIONS)
 GUI_QUALITY_LABELS = {key: values[0] for key, values in QUALITY_OPTIONS.items()}
 GUI_QUALITY_CHOICES = [f"{key} - {GUI_QUALITY_LABELS[key]}" for key in GUI_QUALITY_KEYS]
+BROWSER_COOKIE_CHOICES = ["Keine"] + list(BROWSER_CHOICES)
 
 
 class QueueLogger:
@@ -59,6 +59,7 @@ class DownloaderApp(tk.Tk):
 
         self.folder_var = tk.StringVar(value=self.settings["download_dir"])
         self.quality_var = tk.StringVar(value=GUI_QUALITY_CHOICES[0])
+        self.cookies_var = tk.StringVar(value="Keine")
         self.status_var = tk.StringVar(value="Bereit")
         self.progress_var = tk.DoubleVar(value=0)
 
@@ -100,6 +101,16 @@ class DownloaderApp(tk.Tk):
             width=22,
         )
         quality_box.grid(row=0, column=1, sticky="w", padx=(10, 20))
+
+        ttk.Label(options, text="Browser-Cookies").grid(row=0, column=2, sticky="w")
+        cookies_box = ttk.Combobox(
+            options,
+            textvariable=self.cookies_var,
+            values=BROWSER_COOKIE_CHOICES,
+            state="readonly",
+            width=14,
+        )
+        cookies_box.grid(row=0, column=3, sticky="w", padx=(10, 0))
 
         ttk.Label(options, text="Ordner").grid(row=1, column=0, sticky="w", pady=(10, 0))
         ttk.Entry(options, textvariable=self.folder_var).grid(row=1, column=1, sticky="ew", padx=(10, 10), pady=(10, 0))
@@ -173,6 +184,9 @@ class DownloaderApp(tk.Tk):
         urls = self._read_urls()
         folder = Path(self.folder_var.get()).expanduser()
         quality = self.quality_var.get().split(" - ", 1)[0]
+        cookies_from_browser = self.cookies_var.get()
+        if cookies_from_browser == "Keine":
+            cookies_from_browser = None
 
         if yt_dlp is None:
             messagebox.showerror(APP_TITLE, "yt-dlp ist nicht installiert.")
@@ -198,7 +212,7 @@ class DownloaderApp(tk.Tk):
 
         self.download_thread = threading.Thread(
             target=self._download_worker,
-            args=(urls, folder, quality),
+            args=(urls, folder, quality, cookies_from_browser),
             daemon=True,
         )
         self.download_thread.start()
@@ -207,7 +221,13 @@ class DownloaderApp(tk.Tk):
         text = self.url_text.get("1.0", "end")
         return [line.strip() for line in text.splitlines() if line.strip()]
 
-    def _download_worker(self, urls: list[str], folder: Path, quality_key: str) -> None:
+    def _download_worker(
+        self,
+        urls: list[str],
+        folder: Path,
+        quality_key: str,
+        cookies_from_browser: str | None,
+    ) -> None:
         def hook(data: dict[str, Any]) -> None:
             status = data.get("status")
             if status == "downloading":
@@ -225,29 +245,13 @@ class DownloaderApp(tk.Tk):
                 if filename:
                     self.messages.put(("log", f"Heruntergeladen: {filename}"))
 
-        _, format_selector, output_kind = QUALITY_OPTIONS[quality_key]
-        ffmpeg_path = shutil.which("ffmpeg")
-        ydl_opts: dict[str, Any] = {
-            "format": format_selector,
-            "outtmpl": str(folder / "%(title).200s [%(id)s].%(ext)s"),
-            "noplaylist": True,
-            "progress_hooks": [hook],
-            "logger": QueueLogger(self.messages),
-            "quiet": False,
-            "no_warnings": False,
-        }
-        if output_kind == "mp4":
-            ydl_opts["merge_output_format"] = "mp4"
-        if output_kind == "mp3":
-            ydl_opts["postprocessors"] = [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }
-            ]
-        if ffmpeg_path:
-            ydl_opts["ffmpeg_location"] = os.path.dirname(ffmpeg_path)
+        ydl_opts = build_ydl_options(
+            quality_key,
+            folder,
+            cookies_from_browser=cookies_from_browser,
+            progress_hooks=[hook],
+            logger=QueueLogger(self.messages),
+        )
 
         failures: list[str] = []
         for index, url in enumerate(urls, start=1):

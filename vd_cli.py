@@ -22,6 +22,7 @@ QUALITY_OPTIONS = {
     "480p": ("480p", "bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/best[height<=480]", "mp4"),
     "mp3": ("MP3", "bestaudio/best", "mp3"),
 }
+BROWSER_CHOICES = ("brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi")
 
 
 def default_download_dir() -> Path:
@@ -72,6 +73,46 @@ def friendly_error(raw_error: str) -> str:
     if "unsupported url" in lower:
         return "Dieser Link wird nicht unterstuetzt. Bitte pruefe die URL."
     return text
+
+
+def build_ydl_options(
+    quality_key: str,
+    folder: Path,
+    *,
+    cookies_from_browser: str | None = None,
+    progress_hooks: list[Any] | None = None,
+    logger: Any | None = None,
+) -> dict[str, Any]:
+    ffmpeg_path = shutil.which("ffmpeg")
+    _, format_selector, output_kind = QUALITY_OPTIONS[quality_key]
+
+    options: dict[str, Any] = {
+        "format": format_selector,
+        "outtmpl": str(folder / "%(title).200s [%(id)s].%(ext)s"),
+        "noplaylist": True,
+        "quiet": False,
+        "no_warnings": False,
+    }
+    if output_kind == "mp4":
+        options["merge_output_format"] = "mp4"
+    if output_kind == "mp3":
+        options["postprocessors"] = [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }
+        ]
+    if ffmpeg_path:
+        options["ffmpeg_location"] = os.path.dirname(ffmpeg_path)
+    if cookies_from_browser:
+        options["cookiesfrombrowser"] = (cookies_from_browser,)
+    if progress_hooks:
+        options["progress_hooks"] = progress_hooks
+    if logger:
+        options["logger"] = logger
+
+    return options
 
 
 def can_use_interactive_menu() -> bool:
@@ -222,34 +263,12 @@ def choose_directory(current_folder: Path) -> Path | None:
     return Path(entered).expanduser()
 
 
-def download(url: str, quality_key: str, folder: Path) -> None:
+def download(url: str, quality_key: str, folder: Path, cookies_from_browser: str | None = None) -> None:
     if yt_dlp is None:
         raise RuntimeError("yt-dlp ist nicht installiert. Fuehre zuerst `python -m pip install .` aus.")
 
     folder.mkdir(parents=True, exist_ok=True)
-    ffmpeg_path = shutil.which("ffmpeg")
-    _, format_selector, output_kind = QUALITY_OPTIONS[quality_key]
-
-    options: dict[str, Any] = {
-        "format": format_selector,
-        "outtmpl": str(folder / "%(title).200s [%(id)s].%(ext)s"),
-        "noplaylist": True,
-        "quiet": False,
-        "no_warnings": False,
-    }
-    if output_kind == "mp4":
-        options["merge_output_format"] = "mp4"
-    if output_kind == "mp3":
-        options["postprocessors"] = [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }
-        ]
-    if ffmpeg_path:
-        options["ffmpeg_location"] = os.path.dirname(ffmpeg_path)
-
+    options = build_ydl_options(quality_key, folder, cookies_from_browser=cookies_from_browser)
     with yt_dlp.YoutubeDL(options) as downloader:
         downloader.download([url])
 
@@ -310,6 +329,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("urls", nargs="*", help="Ein oder mehrere Video-Links, z. B. YouTube-Links")
     parser.add_argument("--quality", "-q", choices=list(QUALITY_OPTIONS), help="Qualitaet direkt auswaehlen")
     parser.add_argument("--folder", "-f", help="Nur fuer diesen Download einen anderen Ordner verwenden")
+    parser.add_argument(
+        "--cookies-from-browser",
+        choices=BROWSER_CHOICES,
+        help="Cookies aus einem lokalen Browser verwenden, z. B. bei YouTube-Login-Blockaden",
+    )
     return parser
 
 def main(argv: list[str] | None = None) -> int:
@@ -338,6 +362,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Zielordner: {folder}")
     print(f"Qualitaet: {QUALITY_OPTIONS[quality_key][0]}")
+    if args.cookies_from_browser:
+        print(f"Cookies: {args.cookies_from_browser}")
     if len(args.urls) > 1:
         print(f"Links: {len(args.urls)}")
 
@@ -347,7 +373,7 @@ def main(argv: list[str] | None = None) -> int:
             print()
             print(f"[{index}/{len(args.urls)}] {url}")
         try:
-            download(url, quality_key, folder)
+            download(url, quality_key, folder, cookies_from_browser=args.cookies_from_browser)
         except Exception as exc:  # noqa: BLE001 - CLI boundary
             failures += 1
             print(f"Fehler: {friendly_error(str(exc))}", file=sys.stderr)

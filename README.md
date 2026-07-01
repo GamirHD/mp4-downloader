@@ -11,6 +11,7 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 - CLI command: `vd "https://..."`
 - Saved default download folder shared by GUI and CLI
 - Clearer error messages for common YouTube blocks
+- Optional browser-cookie support for links that require your local login session
 
 ## Before Installing
 
@@ -151,6 +152,13 @@ Skip the quality menu:
 ```bash
 vd "https://www.youtube.com/watch?v=..." --quality 720p
 vd "https://www.youtube.com/watch?v=..." --quality mp3
+```
+
+Use cookies from a local browser when a site requires your login session:
+
+```bash
+vd "https://www.youtube.com/watch?v=..." --cookies-from-browser firefox
+vd "https://www.youtube.com/watch?v=..." --quality mp3 --cookies-from-browser chrome
 ```
 
 Use another folder once:
