@@ -41,17 +41,25 @@ def config_path() -> Path:
     return config_dir() / "settings.json"
 
 
+def download_archive_path() -> Path:
+    return config_dir() / "download-archive.txt"
+
+
 def load_settings() -> dict[str, Any]:
+    defaults = {"download_dir": str(default_download_dir()), "use_download_archive": False}
     path = config_path()
     if not path.exists():
-        return {"download_dir": str(default_download_dir())}
+        return defaults
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {"download_dir": str(default_download_dir())}
+        return defaults
     if not isinstance(data, dict):
-        return {"download_dir": str(default_download_dir())}
-    return {"download_dir": data.get("download_dir") or str(default_download_dir())}
+        return defaults
+    return {
+        "download_dir": data.get("download_dir") or defaults["download_dir"],
+        "use_download_archive": bool(data.get("use_download_archive", defaults["use_download_archive"])),
+    }
 
 
 def save_settings(settings: dict[str, Any]) -> None:
@@ -81,6 +89,7 @@ def build_ydl_options(
     *,
     allow_playlist: bool = False,
     cookies_from_browser: str | None = None,
+    use_download_archive: bool = False,
     progress_hooks: list[Any] | None = None,
     logger: Any | None = None,
 ) -> dict[str, Any]:
@@ -108,6 +117,10 @@ def build_ydl_options(
         options["ffmpeg_location"] = os.path.dirname(ffmpeg_path)
     if cookies_from_browser:
         options["cookiesfrombrowser"] = (cookies_from_browser,)
+    if use_download_archive:
+        archive_path = download_archive_path()
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
+        options["download_archive"] = str(archive_path)
     if progress_hooks:
         options["progress_hooks"] = progress_hooks
     if logger:
@@ -271,6 +284,7 @@ def download(
     *,
     allow_playlist: bool = False,
     cookies_from_browser: str | None = None,
+    use_download_archive: bool = False,
 ) -> None:
     if yt_dlp is None:
         raise RuntimeError("yt-dlp ist nicht installiert. Fuehre zuerst `python -m pip install .` aus.")
@@ -281,32 +295,45 @@ def download(
         folder,
         allow_playlist=allow_playlist,
         cookies_from_browser=cookies_from_browser,
+        use_download_archive=use_download_archive,
     )
     with yt_dlp.YoutubeDL(options) as downloader:
         downloader.download([url])
 
 def settings_command(args: argparse.Namespace) -> int:
     settings = load_settings()
+    changed = False
     if args.folder:
         folder = Path(args.folder).expanduser().resolve()
         folder.mkdir(parents=True, exist_ok=True)
         settings["download_dir"] = str(folder)
-        save_settings(settings)
+        changed = True
         print(f"Downloadordner gespeichert: {folder}")
+    if args.archive is not None:
+        settings["use_download_archive"] = args.archive
+        changed = True
+        state = "aktiviert" if args.archive else "deaktiviert"
+        print(f"Download-Archiv {state}.")
+
+    if changed:
+        save_settings(settings)
         return 0
 
     if not can_use_interactive_menu():
         print(f"Settings-Datei: {config_path()}")
         print(f"Downloadordner: {settings['download_dir']}")
+        print(f"Download-Archiv: {'aktiviert' if settings['use_download_archive'] else 'deaktiviert'}")
+        print(f"Archiv-Datei: {download_archive_path()}")
         return 0
 
     while True:
         current_folder = Path(settings["download_dir"]).expanduser()
+        archive_state = "an" if settings["use_download_archive"] else "aus"
         selected = select_menu(
-            f"Settings\nDownloadordner: {current_folder}",
-            ["Change Directory", "Show Settings File", "Exit"],
+            f"Settings\nDownloadordner: {current_folder}\nDownload-Archiv: {archive_state}",
+            ["Change Directory", "Toggle Download Archive", "Show Settings File", "Exit"],
         )
-        if selected is None or selected == 2:
+        if selected is None or selected == 3:
             return 0
         if selected == 0:
             folder = choose_directory(current_folder)
@@ -322,8 +349,17 @@ def settings_command(args: argparse.Namespace) -> int:
             pause()
             continue
         if selected == 1:
+            settings["use_download_archive"] = not settings["use_download_archive"]
+            save_settings(settings)
+            state = "aktiviert" if settings["use_download_archive"] else "deaktiviert"
+            print(f"Download-Archiv {state}.")
+            pause()
+            continue
+        if selected == 2:
             print(f"Settings-Datei: {config_path()}")
             print(f"Downloadordner: {settings['download_dir']}")
+            print(f"Download-Archiv: {'aktiviert' if settings['use_download_archive'] else 'deaktiviert'}")
+            print(f"Archiv-Datei: {download_archive_path()}")
             pause()
     return 0
 
@@ -352,6 +388,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=BROWSER_CHOICES,
         help="Cookies aus einem lokalen Browser verwenden, z. B. bei YouTube-Login-Blockaden",
     )
+    parser.add_argument(
+        "--archive",
+        action="store_true",
+        help="Bereits heruntergeladene Videos ueberspringen und im Download-Archiv merken",
+    )
     return parser
 
 def main(argv: list[str] | None = None) -> int:
@@ -359,6 +400,10 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] == "settings":
         settings_parser = argparse.ArgumentParser(prog="vd settings", description="Downloadordner anzeigen oder aendern.")
         settings_parser.add_argument("--folder", "-f", help="Neuer Standard-Downloadordner")
+        archive_group = settings_parser.add_mutually_exclusive_group()
+        archive_group.add_argument("--archive", action="store_true", dest="archive", help="Download-Archiv standardmaessig aktivieren")
+        archive_group.add_argument("--no-archive", action="store_false", dest="archive", help="Download-Archiv standardmaessig deaktivieren")
+        settings_parser.set_defaults(archive=None)
         return settings_command(settings_parser.parse_args(argv[1:]))
     if argv and argv[0] == "qualities":
         return qualities_command()
@@ -384,6 +429,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Cookies: {args.cookies_from_browser}")
     if args.playlist:
         print("Playlist-Modus: aktiviert")
+    use_download_archive = args.archive or bool(settings.get("use_download_archive"))
+    if use_download_archive:
+        print(f"Download-Archiv: {download_archive_path()}")
     if len(args.urls) > 1:
         print(f"Links: {len(args.urls)}")
 
@@ -399,6 +447,7 @@ def main(argv: list[str] | None = None) -> int:
                 folder,
                 allow_playlist=args.playlist,
                 cookies_from_browser=args.cookies_from_browser,
+                use_download_archive=use_download_archive,
             )
         except Exception as exc:  # noqa: BLE001 - CLI boundary
             failures += 1

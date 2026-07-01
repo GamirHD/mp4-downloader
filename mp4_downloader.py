@@ -10,7 +10,15 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
-from vd_cli import BROWSER_CHOICES, QUALITY_OPTIONS, build_ydl_options, friendly_error, load_settings, save_settings
+from vd_cli import (
+    BROWSER_CHOICES,
+    QUALITY_OPTIONS,
+    build_ydl_options,
+    download_archive_path,
+    friendly_error,
+    load_settings,
+    save_settings,
+)
 
 try:
     import yt_dlp
@@ -61,6 +69,7 @@ class DownloaderApp(tk.Tk):
         self.quality_var = tk.StringVar(value=GUI_QUALITY_CHOICES[0])
         self.cookies_var = tk.StringVar(value="Keine")
         self.playlist_var = tk.BooleanVar(value=False)
+        self.archive_var = tk.BooleanVar(value=bool(self.settings["use_download_archive"]))
         self.status_var = tk.StringVar(value="Bereit")
         self.progress_var = tk.DoubleVar(value=0)
 
@@ -121,7 +130,13 @@ class DownloaderApp(tk.Tk):
             options,
             text="Playlist komplett herunterladen",
             variable=self.playlist_var,
-        ).grid(row=2, column=1, columnspan=3, sticky="w", padx=(10, 0), pady=(10, 0))
+        ).grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(10, 0))
+        ttk.Checkbutton(
+            options,
+            text="Bereits heruntergeladene Videos ueberspringen",
+            variable=self.archive_var,
+            command=self._save_archive_setting,
+        ).grid(row=2, column=2, columnspan=2, sticky="w", pady=(10, 0))
 
         action_frame = ttk.Frame(root)
         action_frame.grid(row=3, column=0, sticky="ew", pady=(2, 10))
@@ -165,6 +180,12 @@ class DownloaderApp(tk.Tk):
             save_settings(self.settings)
             self._log(f"Downloadordner gespeichert: {folder}")
 
+    def _save_archive_setting(self) -> None:
+        self.settings["use_download_archive"] = self.archive_var.get()
+        save_settings(self.settings)
+        state = "aktiviert" if self.archive_var.get() else "deaktiviert"
+        self._log(f"Download-Archiv {state}: {download_archive_path()}")
+
     def _open_folder(self) -> None:
         folder = Path(self.folder_var.get()).expanduser()
         try:
@@ -192,6 +213,7 @@ class DownloaderApp(tk.Tk):
         quality = self.quality_var.get().split(" - ", 1)[0]
         cookies_from_browser = self.cookies_var.get()
         allow_playlist = self.playlist_var.get()
+        use_download_archive = self.archive_var.get()
         if cookies_from_browser == "Keine":
             cookies_from_browser = None
 
@@ -208,6 +230,7 @@ class DownloaderApp(tk.Tk):
             return
 
         self.settings["download_dir"] = str(folder)
+        self.settings["use_download_archive"] = use_download_archive
         save_settings(self.settings)
         self.progress_var.set(0)
         self.status_var.set("Download laeuft...")
@@ -216,10 +239,12 @@ class DownloaderApp(tk.Tk):
             self._log(f"Starte Download: {urls[0]}")
         else:
             self._log(f"Starte Batch-Download mit {len(urls)} Links.")
+        if use_download_archive:
+            self._log(f"Download-Archiv aktiv: {download_archive_path()}")
 
         self.download_thread = threading.Thread(
             target=self._download_worker,
-            args=(urls, folder, quality, allow_playlist, cookies_from_browser),
+            args=(urls, folder, quality, allow_playlist, cookies_from_browser, use_download_archive),
             daemon=True,
         )
         self.download_thread.start()
@@ -235,6 +260,7 @@ class DownloaderApp(tk.Tk):
         quality_key: str,
         allow_playlist: bool,
         cookies_from_browser: str | None,
+        use_download_archive: bool,
     ) -> None:
         def hook(data: dict[str, Any]) -> None:
             status = data.get("status")
@@ -258,6 +284,7 @@ class DownloaderApp(tk.Tk):
             folder,
             allow_playlist=allow_playlist,
             cookies_from_browser=cookies_from_browser,
+            use_download_archive=use_download_archive,
             progress_hooks=[hook],
             logger=QueueLogger(self.messages),
         )

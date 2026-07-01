@@ -13,6 +13,7 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 - Saved default download folder shared by GUI and CLI
 - Clearer error messages for common YouTube blocks
 - Optional browser-cookie support for links that require your local login session
+- Optional download archive to skip videos that were already downloaded before
 
 ## Before Installing
 
@@ -168,6 +169,14 @@ Download a full playlist instead of only the linked video:
 vd "https://www.youtube.com/playlist?list=..." --playlist
 ```
 
+Skip videos that were already downloaded before:
+
+```bash
+vd "https://www.youtube.com/watch?v=..." --archive
+vd settings --archive
+vd settings --no-archive
+```
+
 Use another folder once:
 
 ```bash
@@ -181,6 +190,8 @@ vd settings
 vd settings --folder "$HOME/Videos"
 vd qualities
 ```
+
+The download archive is stored next to the app settings and is shared by GUI and CLI.
 
 ## Development
 
