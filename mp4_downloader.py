@@ -60,6 +60,7 @@ class DownloaderApp(tk.Tk):
         self.folder_var = tk.StringVar(value=self.settings["download_dir"])
         self.quality_var = tk.StringVar(value=GUI_QUALITY_CHOICES[0])
         self.cookies_var = tk.StringVar(value="Keine")
+        self.playlist_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Bereit")
         self.progress_var = tk.DoubleVar(value=0)
 
@@ -116,6 +117,11 @@ class DownloaderApp(tk.Tk):
         ttk.Entry(options, textvariable=self.folder_var).grid(row=1, column=1, sticky="ew", padx=(10, 10), pady=(10, 0))
         ttk.Button(options, text="Waehlen", command=self._choose_folder).grid(row=1, column=2, pady=(10, 0))
         ttk.Button(options, text="Oeffnen", command=self._open_folder).grid(row=1, column=3, padx=(8, 0), pady=(10, 0))
+        ttk.Checkbutton(
+            options,
+            text="Playlist komplett herunterladen",
+            variable=self.playlist_var,
+        ).grid(row=2, column=1, columnspan=3, sticky="w", padx=(10, 0), pady=(10, 0))
 
         action_frame = ttk.Frame(root)
         action_frame.grid(row=3, column=0, sticky="ew", pady=(2, 10))
@@ -185,6 +191,7 @@ class DownloaderApp(tk.Tk):
         folder = Path(self.folder_var.get()).expanduser()
         quality = self.quality_var.get().split(" - ", 1)[0]
         cookies_from_browser = self.cookies_var.get()
+        allow_playlist = self.playlist_var.get()
         if cookies_from_browser == "Keine":
             cookies_from_browser = None
 
@@ -212,7 +219,7 @@ class DownloaderApp(tk.Tk):
 
         self.download_thread = threading.Thread(
             target=self._download_worker,
-            args=(urls, folder, quality, cookies_from_browser),
+            args=(urls, folder, quality, allow_playlist, cookies_from_browser),
             daemon=True,
         )
         self.download_thread.start()
@@ -226,6 +233,7 @@ class DownloaderApp(tk.Tk):
         urls: list[str],
         folder: Path,
         quality_key: str,
+        allow_playlist: bool,
         cookies_from_browser: str | None,
     ) -> None:
         def hook(data: dict[str, Any]) -> None:
@@ -248,6 +256,7 @@ class DownloaderApp(tk.Tk):
         ydl_opts = build_ydl_options(
             quality_key,
             folder,
+            allow_playlist=allow_playlist,
             cookies_from_browser=cookies_from_browser,
             progress_hooks=[hook],
             logger=QueueLogger(self.messages),
@@ -258,6 +267,8 @@ class DownloaderApp(tk.Tk):
             if len(urls) > 1:
                 self.messages.put(("log", f"[{index}/{len(urls)}] {url}"))
                 self.messages.put(("status", f"Download {index} von {len(urls)} laeuft..."))
+            elif allow_playlist:
+                self.messages.put(("log", "Playlist-Modus aktiviert."))
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as downloader:
                     info = downloader.extract_info(url, download=True)

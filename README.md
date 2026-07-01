@@ -5,6 +5,7 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 ## Features
 
 - Download one or more video links as MP4 or MP3
+- Optional playlist downloads when explicitly enabled
 - Quality choices: best, 1080p, 720p, 480p, MP3
 - Windows/Linux/macOS GUI builds in GitHub releases
 - Windows setup installer for the GUI
@@ -159,6 +160,12 @@ Use cookies from a local browser when a site requires your login session:
 ```bash
 vd "https://www.youtube.com/watch?v=..." --cookies-from-browser firefox
 vd "https://www.youtube.com/watch?v=..." --quality mp3 --cookies-from-browser chrome
+```
+
+Download a full playlist instead of only the linked video:
+
+```bash
+vd "https://www.youtube.com/playlist?list=..." --playlist
 ```
 
 Use another folder once:

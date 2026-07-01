@@ -79,6 +79,7 @@ def build_ydl_options(
     quality_key: str,
     folder: Path,
     *,
+    allow_playlist: bool = False,
     cookies_from_browser: str | None = None,
     progress_hooks: list[Any] | None = None,
     logger: Any | None = None,
@@ -89,7 +90,7 @@ def build_ydl_options(
     options: dict[str, Any] = {
         "format": format_selector,
         "outtmpl": str(folder / "%(title).200s [%(id)s].%(ext)s"),
-        "noplaylist": True,
+        "noplaylist": not allow_playlist,
         "quiet": False,
         "no_warnings": False,
     }
@@ -263,12 +264,24 @@ def choose_directory(current_folder: Path) -> Path | None:
     return Path(entered).expanduser()
 
 
-def download(url: str, quality_key: str, folder: Path, cookies_from_browser: str | None = None) -> None:
+def download(
+    url: str,
+    quality_key: str,
+    folder: Path,
+    *,
+    allow_playlist: bool = False,
+    cookies_from_browser: str | None = None,
+) -> None:
     if yt_dlp is None:
         raise RuntimeError("yt-dlp ist nicht installiert. Fuehre zuerst `python -m pip install .` aus.")
 
     folder.mkdir(parents=True, exist_ok=True)
-    options = build_ydl_options(quality_key, folder, cookies_from_browser=cookies_from_browser)
+    options = build_ydl_options(
+        quality_key,
+        folder,
+        allow_playlist=allow_playlist,
+        cookies_from_browser=cookies_from_browser,
+    )
     with yt_dlp.YoutubeDL(options) as downloader:
         downloader.download([url])
 
@@ -330,6 +343,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quality", "-q", choices=list(QUALITY_OPTIONS), help="Qualitaet direkt auswaehlen")
     parser.add_argument("--folder", "-f", help="Nur fuer diesen Download einen anderen Ordner verwenden")
     parser.add_argument(
+        "--playlist",
+        action="store_true",
+        help="Playlist-Links komplett herunterladen statt nur das einzelne Video",
+    )
+    parser.add_argument(
         "--cookies-from-browser",
         choices=BROWSER_CHOICES,
         help="Cookies aus einem lokalen Browser verwenden, z. B. bei YouTube-Login-Blockaden",
@@ -364,6 +382,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Qualitaet: {QUALITY_OPTIONS[quality_key][0]}")
     if args.cookies_from_browser:
         print(f"Cookies: {args.cookies_from_browser}")
+    if args.playlist:
+        print("Playlist-Modus: aktiviert")
     if len(args.urls) > 1:
         print(f"Links: {len(args.urls)}")
 
@@ -373,7 +393,13 @@ def main(argv: list[str] | None = None) -> int:
             print()
             print(f"[{index}/{len(args.urls)}] {url}")
         try:
-            download(url, quality_key, folder, cookies_from_browser=args.cookies_from_browser)
+            download(
+                url,
+                quality_key,
+                folder,
+                allow_playlist=args.playlist,
+                cookies_from_browser=args.cookies_from_browser,
+            )
         except Exception as exc:  # noqa: BLE001 - CLI boundary
             failures += 1
             print(f"Fehler: {friendly_error(str(exc))}", file=sys.stderr)
