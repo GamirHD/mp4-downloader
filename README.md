@@ -16,6 +16,7 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 - Optional download archive to skip videos that were already downloaded before
 - GUI cancel button for stopping long or accidental downloads
 - GUI download queue with add, remove, clear, and reorder controls
+- Shared download history for CLI and GUI with quick re-add in the GUI
 
 ## Before Installing
 
@@ -190,10 +191,11 @@ Settings and qualities:
 ```bash
 vd settings
 vd settings --folder "$HOME/Videos"
+vd history
 vd qualities
 ```
 
-The download archive is stored next to the app settings and is shared by GUI and CLI.
+The download archive and download history are stored next to the app settings and are shared by GUI and CLI.
 
 ## Development
 

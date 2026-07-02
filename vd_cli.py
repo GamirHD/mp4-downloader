@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,7 @@ QUALITY_OPTIONS = {
     "mp3": ("MP3", "bestaudio/best", "mp3"),
 }
 BROWSER_CHOICES = ("brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi")
+MAX_HISTORY_ENTRIES = 100
 
 
 def default_download_dir() -> Path:
@@ -43,6 +45,10 @@ def config_path() -> Path:
 
 def download_archive_path() -> Path:
     return config_dir() / "download-archive.txt"
+
+
+def history_path() -> Path:
+    return config_dir() / "history.json"
 
 
 def load_settings() -> dict[str, Any]:
@@ -66,6 +72,51 @@ def save_settings(settings: dict[str, Any]) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+
+
+def load_history() -> list[dict[str, Any]]:
+    path = history_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [entry for entry in data if isinstance(entry, dict)]
+
+
+def save_history(entries: list[dict[str, Any]]) -> None:
+    path = history_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(entries[:MAX_HISTORY_ENTRIES], indent=2), encoding="utf-8")
+
+
+def clear_history() -> None:
+    path = history_path()
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+
+
+def add_history_entry(
+    url: str,
+    *,
+    title: str,
+    quality_key: str,
+    folder: Path,
+) -> None:
+    entry = {
+        "downloaded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "url": url,
+        "title": title,
+        "quality": quality_key,
+        "folder": str(folder),
+    }
+    entries = [item for item in load_history() if item.get("url") != url]
+    save_history([entry, *entries])
 
 
 def friendly_error(raw_error: str) -> str:
@@ -285,7 +336,7 @@ def download(
     allow_playlist: bool = False,
     cookies_from_browser: str | None = None,
     use_download_archive: bool = False,
-) -> None:
+) -> dict[str, Any] | None:
     if yt_dlp is None:
         raise RuntimeError("yt-dlp ist nicht installiert. Fuehre zuerst `python -m pip install .` aus.")
 
@@ -298,7 +349,33 @@ def download(
         use_download_archive=use_download_archive,
     )
     with yt_dlp.YoutubeDL(options) as downloader:
-        downloader.download([url])
+        return downloader.extract_info(url, download=True)
+
+
+def history_command(args: argparse.Namespace) -> int:
+    if args.clear:
+        clear_history()
+        print("Download-Verlauf geloescht.")
+        return 0
+
+    entries = load_history()
+    if not entries:
+        print("Noch keine erfolgreichen Downloads im Verlauf.")
+        print(f"Verlauf-Datei: {history_path()}")
+        return 0
+
+    for index, entry in enumerate(entries[: args.limit], start=1):
+        title = entry.get("title") or "Video"
+        url = entry.get("url") or ""
+        quality = entry.get("quality") or "?"
+        folder = entry.get("folder") or "?"
+        downloaded_at = entry.get("downloaded_at") or "?"
+        print(f"{index}. {title}")
+        print(f"   URL: {url}")
+        print(f"   Qualitaet: {quality}  Ordner: {folder}")
+        print(f"   Zeit: {downloaded_at}")
+    print(f"Verlauf-Datei: {history_path()}")
+    return 0
 
 def settings_command(args: argparse.Namespace) -> int:
     settings = load_settings()
@@ -397,6 +474,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "history":
+        history_parser = argparse.ArgumentParser(prog="vd history", description="Erfolgreiche Downloads anzeigen.")
+        history_parser.add_argument("--limit", "-n", type=int, default=20, help="Maximale Anzahl Eintraege")
+        history_parser.add_argument("--clear", action="store_true", help="Download-Verlauf loeschen")
+        return history_command(history_parser.parse_args(argv[1:]))
     if argv and argv[0] == "settings":
         settings_parser = argparse.ArgumentParser(prog="vd settings", description="Downloadordner anzeigen oder aendern.")
         settings_parser.add_argument("--folder", "-f", help="Neuer Standard-Downloadordner")
@@ -416,6 +498,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Weitere Befehle:")
         print("  vd settings              Settings-Menue oeffnen")
         print("  vd settings --folder PFAD Downloadordner aendern")
+        print("  vd history               Download-Verlauf anzeigen")
         print("  vd qualities             Qualitaeten anzeigen")
         return 2
 
@@ -441,7 +524,7 @@ def main(argv: list[str] | None = None) -> int:
             print()
             print(f"[{index}/{len(args.urls)}] {url}")
         try:
-            download(
+            info = download(
                 url,
                 quality_key,
                 folder,
@@ -449,6 +532,8 @@ def main(argv: list[str] | None = None) -> int:
                 cookies_from_browser=args.cookies_from_browser,
                 use_download_archive=use_download_archive,
             )
+            title = info.get("title", "Video") if isinstance(info, dict) else "Video"
+            add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
         except Exception as exc:  # noqa: BLE001 - CLI boundary
             failures += 1
             print(f"Fehler: {friendly_error(str(exc))}", file=sys.stderr)

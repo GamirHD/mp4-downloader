@@ -13,9 +13,13 @@ from typing import Any
 from vd_cli import (
     BROWSER_CHOICES,
     QUALITY_OPTIONS,
+    add_history_entry,
     build_ydl_options,
+    clear_history,
     download_archive_path,
     friendly_error,
+    history_path,
+    load_history,
     load_settings,
     save_settings,
 )
@@ -62,8 +66,8 @@ class DownloaderApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("760x580")
-        self.minsize(680, 520)
+        self.geometry("760x660")
+        self.minsize(680, 620)
 
         self.messages: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.download_thread: threading.Thread | None = None
@@ -91,7 +95,7 @@ class DownloaderApp(tk.Tk):
         root = ttk.Frame(self, padding=18)
         root.grid(row=0, column=0, sticky="nsew")
         root.columnconfigure(0, weight=1)
-        root.rowconfigure(5, weight=1)
+        root.rowconfigure(6, weight=1)
 
         title = ttk.Label(root, text=APP_TITLE, font=("TkDefaultFont", 18, "bold"))
         title.grid(row=0, column=0, sticky="w")
@@ -177,8 +181,25 @@ class DownloaderApp(tk.Tk):
         self.progress = ttk.Progressbar(root, variable=self.progress_var, maximum=100)
         self.progress.grid(row=4, column=0, sticky="ew", pady=(0, 12))
 
+        history_frame = ttk.LabelFrame(root, text="Verlauf", padding=8)
+        history_frame.grid(row=5, column=0, sticky="ew", pady=(0, 12))
+        history_frame.columnconfigure(0, weight=1)
+
+        self.history_listbox = tk.Listbox(history_frame, height=4, activestyle="dotbox", selectmode="extended")
+        self.history_listbox.grid(row=0, column=0, sticky="ew")
+        self.history_listbox.bind("<Double-Button-1>", lambda _event: self._add_selected_history_urls())
+        history_scrollbar = ttk.Scrollbar(history_frame, command=self.history_listbox.yview)
+        history_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.history_listbox.configure(yscrollcommand=history_scrollbar.set)
+
+        history_buttons = ttk.Frame(history_frame)
+        history_buttons.grid(row=0, column=2, sticky="n", padx=(10, 0))
+        ttk.Button(history_buttons, text="Erneut hinzufuegen", command=self._add_selected_history_urls).grid(row=0, column=0, sticky="ew")
+        ttk.Button(history_buttons, text="Aktualisieren", command=self._refresh_history).grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        ttk.Button(history_buttons, text="Verlauf loeschen", command=self._clear_history).grid(row=2, column=0, sticky="ew", pady=(6, 0))
+
         log_frame = ttk.LabelFrame(root, text="Status", padding=8)
-        log_frame.grid(row=5, column=0, sticky="nsew")
+        log_frame.grid(row=6, column=0, sticky="nsew")
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
 
@@ -187,6 +208,7 @@ class DownloaderApp(tk.Tk):
         scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.log_text.configure(yscrollcommand=scrollbar.set)
+        self._refresh_history()
 
     def _paste_url(self) -> None:
         try:
@@ -343,6 +365,35 @@ class DownloaderApp(tk.Tk):
     def _read_urls(self) -> list[str]:
         return [str(self.url_listbox.get(index)).strip() for index in range(self.url_listbox.size())]
 
+    def _refresh_history(self) -> None:
+        self.history_entries = load_history()
+        self.history_listbox.delete(0, "end")
+        for entry in self.history_entries[:20]:
+            title = entry.get("title") or "Video"
+            quality = entry.get("quality") or "?"
+            downloaded_at = str(entry.get("downloaded_at") or "")
+            short_date = downloaded_at[:10] if downloaded_at else "?"
+            self.history_listbox.insert("end", f"{short_date} | {quality} | {title}")
+
+    def _add_selected_history_urls(self) -> None:
+        selected = self.history_listbox.curselection()
+        if not selected:
+            return
+        urls = []
+        for index in selected:
+            if index < len(self.history_entries):
+                url = self.history_entries[index].get("url")
+                if url:
+                    urls.append(str(url))
+        self._add_urls_from_text("\n".join(urls))
+
+    def _clear_history(self) -> None:
+        if not messagebox.askyesno(APP_TITLE, "Download-Verlauf wirklich loeschen?"):
+            return
+        clear_history()
+        self._refresh_history()
+        self._log(f"Download-Verlauf geloescht: {history_path()}")
+
     def _download_worker(
         self,
         urls: list[str],
@@ -395,6 +446,8 @@ class DownloaderApp(tk.Tk):
                 with yt_dlp.YoutubeDL(ydl_opts) as downloader:
                     info = downloader.extract_info(url, download=True)
                 title = info.get("title", "Video") if isinstance(info, dict) else "Video"
+                add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
+                self.messages.put(("history_changed", None))
                 self.messages.put(("log", f"Fertig: {title}"))
             except DownloadCancelled:
                 self.messages.put(("cancelled", "Download abgebrochen."))
@@ -426,6 +479,8 @@ class DownloaderApp(tk.Tk):
                 self.progress_var.set(float(payload))
             elif message_type == "status":
                 self.status_var.set(str(payload))
+            elif message_type == "history_changed":
+                self._refresh_history()
             elif message_type == "done":
                 self._log(str(payload))
                 self.status_var.set("Fertig")
