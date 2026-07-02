@@ -14,6 +14,7 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 - Clearer error messages for common YouTube blocks
 - Optional browser-cookie support for links that require your local login session
 - Optional download archive to skip videos that were already downloaded before
+- GUI cancel button for stopping long or accidental downloads
 
 ## Before Installing
 

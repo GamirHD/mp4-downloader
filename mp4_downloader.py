@@ -35,6 +35,10 @@ GUI_QUALITY_CHOICES = [f"{key} - {GUI_QUALITY_LABELS[key]}" for key in GUI_QUALI
 BROWSER_COOKIE_CHOICES = ["Keine"] + list(BROWSER_CHOICES)
 
 
+class DownloadCancelled(RuntimeError):
+    pass
+
+
 class QueueLogger:
     def __init__(self, messages: queue.Queue[tuple[str, Any]]) -> None:
         self.messages = messages
@@ -63,6 +67,7 @@ class DownloaderApp(tk.Tk):
 
         self.messages: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.download_thread: threading.Thread | None = None
+        self.cancel_requested = threading.Event()
         self.settings = load_settings()
 
         self.folder_var = tk.StringVar(value=self.settings["download_dir"])
@@ -140,11 +145,13 @@ class DownloaderApp(tk.Tk):
 
         action_frame = ttk.Frame(root)
         action_frame.grid(row=3, column=0, sticky="ew", pady=(2, 10))
-        action_frame.columnconfigure(2, weight=1)
+        action_frame.columnconfigure(3, weight=1)
         self.download_button = ttk.Button(action_frame, text="Download starten", command=self._start_download)
         self.download_button.grid(row=0, column=0, sticky="w")
-        ttk.Button(action_frame, text="Log leeren", command=self._clear_log).grid(row=0, column=1, sticky="w", padx=(10, 0))
-        ttk.Label(action_frame, textvariable=self.status_var).grid(row=0, column=2, sticky="e")
+        self.cancel_button = ttk.Button(action_frame, text="Abbrechen", command=self._cancel_download, state="disabled")
+        self.cancel_button.grid(row=0, column=1, sticky="w", padx=(10, 0))
+        ttk.Button(action_frame, text="Log leeren", command=self._clear_log).grid(row=0, column=2, sticky="w", padx=(10, 0))
+        ttk.Label(action_frame, textvariable=self.status_var).grid(row=0, column=3, sticky="e")
 
         self.progress = ttk.Progressbar(root, variable=self.progress_var, maximum=100)
         self.progress.grid(row=4, column=0, sticky="ew", pady=(0, 12))
@@ -232,9 +239,11 @@ class DownloaderApp(tk.Tk):
         self.settings["download_dir"] = str(folder)
         self.settings["use_download_archive"] = use_download_archive
         save_settings(self.settings)
+        self.cancel_requested.clear()
         self.progress_var.set(0)
         self.status_var.set("Download laeuft...")
         self.download_button.configure(state="disabled")
+        self.cancel_button.configure(state="normal")
         if len(urls) == 1:
             self._log(f"Starte Download: {urls[0]}")
         else:
@@ -248,6 +257,16 @@ class DownloaderApp(tk.Tk):
             daemon=True,
         )
         self.download_thread.start()
+
+    def _cancel_download(self) -> None:
+        if not self.download_thread or not self.download_thread.is_alive():
+            return
+        if self.cancel_requested.is_set():
+            return
+        self.cancel_requested.set()
+        self.cancel_button.configure(state="disabled")
+        self.status_var.set("Abbruch wird vorbereitet...")
+        self._log("Abbruch angefordert. Der aktuelle Download wird gestoppt.")
 
     def _read_urls(self) -> list[str]:
         text = self.url_text.get("1.0", "end")
@@ -263,6 +282,8 @@ class DownloaderApp(tk.Tk):
         use_download_archive: bool,
     ) -> None:
         def hook(data: dict[str, Any]) -> None:
+            if self.cancel_requested.is_set():
+                raise DownloadCancelled("Download abgebrochen.")
             status = data.get("status")
             if status == "downloading":
                 total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
@@ -291,6 +312,9 @@ class DownloaderApp(tk.Tk):
 
         failures: list[str] = []
         for index, url in enumerate(urls, start=1):
+            if self.cancel_requested.is_set():
+                self.messages.put(("cancelled", "Download abgebrochen."))
+                return
             if len(urls) > 1:
                 self.messages.put(("log", f"[{index}/{len(urls)}] {url}"))
                 self.messages.put(("status", f"Download {index} von {len(urls)} laeuft..."))
@@ -301,6 +325,9 @@ class DownloaderApp(tk.Tk):
                     info = downloader.extract_info(url, download=True)
                 title = info.get("title", "Video") if isinstance(info, dict) else "Video"
                 self.messages.put(("log", f"Fertig: {title}"))
+            except DownloadCancelled:
+                self.messages.put(("cancelled", "Download abgebrochen."))
+                return
             except Exception as exc:  # noqa: BLE001 - user-facing GUI boundary
                 message = friendly_error(str(exc))
                 failures.append(url)
@@ -332,10 +359,17 @@ class DownloaderApp(tk.Tk):
                 self._log(str(payload))
                 self.status_var.set("Fertig")
                 self.download_button.configure(state="normal")
+                self.cancel_button.configure(state="disabled")
+            elif message_type == "cancelled":
+                self._log(str(payload))
+                self.status_var.set("Abgebrochen")
+                self.download_button.configure(state="normal")
+                self.cancel_button.configure(state="disabled")
             elif message_type == "batch_error":
                 self._log(f"Fehler: {payload}")
                 self.status_var.set("Fertig mit Fehlern")
                 self.download_button.configure(state="normal")
+                self.cancel_button.configure(state="disabled")
                 messagebox.showerror(APP_TITLE, str(payload))
             elif message_type == "error":
                 self._set_idle_error(str(payload))
@@ -346,6 +380,7 @@ class DownloaderApp(tk.Tk):
         self._log(f"Fehler: {message}")
         self.status_var.set("Fehler")
         self.download_button.configure(state="normal")
+        self.cancel_button.configure(state="disabled")
         messagebox.showerror(APP_TITLE, message)
 
     def _log(self, message: str) -> None:
