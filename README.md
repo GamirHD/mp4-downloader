@@ -15,6 +15,7 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 - Optional browser-cookie support for links that require your local login session
 - Optional download archive to skip videos that were already downloaded before
 - GUI cancel button for stopping long or accidental downloads
+- GUI download queue with add, remove, clear, and reorder controls
 
 ## Before Installing
 

@@ -62,8 +62,8 @@ class DownloaderApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("760x520")
-        self.minsize(680, 460)
+        self.geometry("760x580")
+        self.minsize(680, 520)
 
         self.messages: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.download_thread: threading.Thread | None = None
@@ -99,9 +99,30 @@ class DownloaderApp(tk.Tk):
         url_frame = ttk.LabelFrame(root, text="Video-Links", padding=12)
         url_frame.grid(row=1, column=0, sticky="ew", pady=(16, 10))
         url_frame.columnconfigure(0, weight=1)
-        self.url_text = tk.Text(url_frame, height=4, wrap="word")
-        self.url_text.grid(row=0, column=0, sticky="ew")
-        ttk.Button(url_frame, text="Einfuegen", command=self._paste_url).grid(row=0, column=1, sticky="n", padx=(10, 0))
+        self.url_entry = ttk.Entry(url_frame)
+        self.url_entry.grid(row=0, column=0, sticky="ew")
+        self.url_entry.bind("<Return>", lambda _event: self._add_url())
+        ttk.Button(url_frame, text="Einfuegen", command=self._paste_url).grid(row=0, column=1, sticky="ew", padx=(10, 0))
+        ttk.Button(url_frame, text="Hinzufuegen", command=self._add_url).grid(row=0, column=2, sticky="ew", padx=(8, 0))
+
+        queue_frame = ttk.Frame(url_frame)
+        queue_frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        queue_frame.columnconfigure(0, weight=1)
+        queue_frame.rowconfigure(0, weight=1)
+
+        self.url_listbox = tk.Listbox(queue_frame, height=4, activestyle="dotbox", selectmode="extended")
+        self.url_listbox.grid(row=0, column=0, rowspan=2, sticky="ew")
+        self.url_listbox.bind("<Delete>", lambda _event: self._remove_selected_urls())
+        queue_scrollbar = ttk.Scrollbar(queue_frame, command=self.url_listbox.yview)
+        queue_scrollbar.grid(row=0, column=1, rowspan=2, sticky="ns")
+        self.url_listbox.configure(yscrollcommand=queue_scrollbar.set)
+
+        queue_buttons = ttk.Frame(queue_frame)
+        queue_buttons.grid(row=0, column=2, sticky="n", padx=(10, 0))
+        ttk.Button(queue_buttons, text="Entfernen", command=self._remove_selected_urls).grid(row=0, column=0, sticky="ew")
+        ttk.Button(queue_buttons, text="Leeren", command=self._clear_urls).grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        ttk.Button(queue_buttons, text="Hoch", command=lambda: self._move_selected_url(-1)).grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        ttk.Button(queue_buttons, text="Runter", command=lambda: self._move_selected_url(1)).grid(row=3, column=0, sticky="ew", pady=(6, 0))
 
         options = ttk.Frame(root)
         options.grid(row=2, column=0, sticky="ew", pady=(0, 10))
@@ -173,11 +194,62 @@ class DownloaderApp(tk.Tk):
             if not text:
                 self._log("Zwischenablage ist leer.")
                 return
-            if self.url_text.get("1.0", "end").strip():
-                self.url_text.insert("end", "\n")
-            self.url_text.insert("end", text)
+            self._add_urls_from_text(text)
         except tk.TclError:
             self._log("Zwischenablage ist leer.")
+
+    def _add_url(self) -> None:
+        text = self.url_entry.get().strip()
+        if not text:
+            return
+        self._add_urls_from_text(text)
+        self.url_entry.delete(0, "end")
+
+    def _add_urls_from_text(self, text: str) -> None:
+        urls = [line.strip() for line in text.splitlines() if line.strip()]
+        if not urls:
+            return
+        existing = set(self._read_urls())
+        added = 0
+        for url in urls:
+            if url in existing:
+                continue
+            self.url_listbox.insert("end", url)
+            existing.add(url)
+            added += 1
+        if added:
+            label = "Link" if added == 1 else "Links"
+            self._log(f"{added} {label} zur Warteschlange hinzugefuegt.")
+        else:
+            self._log("Keine neuen Links hinzugefuegt.")
+
+    def _remove_selected_urls(self) -> None:
+        selected = list(self.url_listbox.curselection())
+        if not selected:
+            return
+        for index in reversed(selected):
+            self.url_listbox.delete(index)
+        self._log(f"{len(selected)} Link(s) aus der Warteschlange entfernt.")
+
+    def _clear_urls(self) -> None:
+        if self.url_listbox.size() == 0:
+            return
+        self.url_listbox.delete(0, "end")
+        self._log("Warteschlange geleert.")
+
+    def _move_selected_url(self, direction: int) -> None:
+        selected = self.url_listbox.curselection()
+        if len(selected) != 1:
+            return
+        index = selected[0]
+        new_index = index + direction
+        if new_index < 0 or new_index >= self.url_listbox.size():
+            return
+        url = self.url_listbox.get(index)
+        self.url_listbox.delete(index)
+        self.url_listbox.insert(new_index, url)
+        self.url_listbox.selection_set(new_index)
+        self.url_listbox.activate(new_index)
 
     def _choose_folder(self) -> None:
         folder = filedialog.askdirectory(initialdir=self.folder_var.get() or str(Path.home()))
@@ -269,8 +341,7 @@ class DownloaderApp(tk.Tk):
         self._log("Abbruch angefordert. Der aktuelle Download wird gestoppt.")
 
     def _read_urls(self) -> list[str]:
-        text = self.url_text.get("1.0", "end")
-        return [line.strip() for line in text.splitlines() if line.strip()]
+        return [str(self.url_listbox.get(index)).strip() for index in range(self.url_listbox.size())]
 
     def _download_worker(
         self,
