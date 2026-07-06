@@ -211,6 +211,13 @@ Run from source:
 python run.py
 ```
 
+Run checks:
+
+```bash
+python -m py_compile mp4_downloader.py vd_cli.py run.py
+python -m unittest discover -s tests -v
+```
+
 Build GUI locally:
 
 ```bash

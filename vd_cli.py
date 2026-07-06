@@ -125,7 +125,8 @@ def friendly_error(raw_error: str) -> str:
     if "sign in to confirm" in lower or "bot" in lower or "cookies" in lower:
         return (
             "YouTube blockiert diesen Link oder verlangt eine Browser-Session. "
-            "Teste ein anderes Video oder versuche es spaeter erneut."
+            "Versuche es mit Browser-Cookies, z. B. `--cookies-from-browser firefox`, "
+            "oder waehle in der GUI den passenden Browser aus."
         )
     if "ffmpeg" in lower:
         return "ffmpeg fehlt oder wurde nicht gefunden. Installiere ffmpeg und starte das Terminal neu."
@@ -364,7 +365,8 @@ def history_command(args: argparse.Namespace) -> int:
         print(f"Verlauf-Datei: {history_path()}")
         return 0
 
-    for index, entry in enumerate(entries[: args.limit], start=1):
+    limit = max(1, args.limit)
+    for index, entry in enumerate(entries[:limit], start=1):
         title = entry.get("title") or "Video"
         url = entry.get("url") or ""
         quality = entry.get("quality") or "?"
@@ -447,6 +449,16 @@ def qualities_command() -> int:
     return 0
 
 
+def positive_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("muss eine positive Zahl sein") from exc
+    if number < 1:
+        raise argparse.ArgumentTypeError("muss eine positive Zahl sein")
+    return number
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="vd",
@@ -476,7 +488,7 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "history":
         history_parser = argparse.ArgumentParser(prog="vd history", description="Erfolgreiche Downloads anzeigen.")
-        history_parser.add_argument("--limit", "-n", type=int, default=20, help="Maximale Anzahl Eintraege")
+        history_parser.add_argument("--limit", "-n", type=positive_int, default=20, help="Maximale Anzahl Eintraege")
         history_parser.add_argument("--clear", action="store_true", help="Download-Verlauf loeschen")
         return history_command(history_parser.parse_args(argv[1:]))
     if argv and argv[0] == "settings":
