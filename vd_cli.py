@@ -51,6 +51,23 @@ def history_path() -> Path:
     return config_dir() / "history.json"
 
 
+def clean_history_entry(entry: dict[str, Any]) -> dict[str, str] | None:
+    url = entry.get("url")
+    if not isinstance(url, str) or not url.strip():
+        return None
+
+    cleaned: dict[str, str] = {"url": url.strip()}
+    for key, fallback in (
+        ("downloaded_at", "?"),
+        ("title", "Video"),
+        ("quality", "?"),
+        ("folder", "?"),
+    ):
+        value = entry.get(key)
+        cleaned[key] = value.strip() if isinstance(value, str) and value.strip() else fallback
+    return cleaned
+
+
 def load_settings() -> dict[str, Any]:
     defaults = {"download_dir": str(default_download_dir()), "use_download_archive": False}
     path = config_path()
@@ -84,13 +101,25 @@ def load_history() -> list[dict[str, Any]]:
         return []
     if not isinstance(data, list):
         return []
-    return [entry for entry in data if isinstance(entry, dict)]
+    entries: list[dict[str, Any]] = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        cleaned = clean_history_entry(entry)
+        if cleaned is not None:
+            entries.append(cleaned)
+    return entries
 
 
 def save_history(entries: list[dict[str, Any]]) -> None:
     path = history_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(entries[:MAX_HISTORY_ENTRIES], indent=2), encoding="utf-8")
+    cleaned_entries = []
+    for entry in entries:
+        cleaned = clean_history_entry(entry)
+        if cleaned is not None:
+            cleaned_entries.append(cleaned)
+    path.write_text(json.dumps(cleaned_entries[:MAX_HISTORY_ENTRIES], indent=2), encoding="utf-8")
 
 
 def clear_history() -> None:

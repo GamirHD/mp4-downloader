@@ -48,6 +48,22 @@ class VdCliSharedStateTests(unittest.TestCase):
         self.assertEqual(len(entries), vd_cli.MAX_HISTORY_ENTRIES)
         self.assertEqual(len({entry["url"] for entry in entries}), vd_cli.MAX_HISTORY_ENTRIES)
 
+    def test_history_ignores_entries_without_string_url(self) -> None:
+        vd_cli.save_history(
+            [
+                {"url": " https://example.test/1 ", "title": " One ", "quality": "720p", "folder": " /tmp "},
+                {"url": ""},
+                {"url": ["https://example.test/2"], "title": "Two"},
+                {"title": "Missing URL"},
+            ]
+        )
+
+        entries = vd_cli.load_history()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["url"], "https://example.test/1")
+        self.assertEqual(entries[0]["title"], "One")
+        self.assertEqual(entries[0]["folder"], "/tmp")
+
     def test_history_command_rejects_zero_limit_in_parser(self) -> None:
         parser = argparse.ArgumentParser()
         parser.add_argument("--limit", type=vd_cli.positive_int)
