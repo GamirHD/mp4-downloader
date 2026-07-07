@@ -17,6 +17,7 @@ from vd_cli import (
     build_ydl_options,
     clear_history,
     download_archive_path,
+    extract_urls_from_text,
     friendly_error,
     history_path,
     load_history,
@@ -228,7 +229,7 @@ class DownloaderApp(tk.Tk):
         self.url_entry.delete(0, "end")
 
     def _add_urls_from_text(self, text: str) -> None:
-        urls = [line.strip() for line in text.splitlines() if line.strip()]
+        urls = extract_urls_from_text(text)
         if not urls:
             return
         existing = set(self._read_urls())

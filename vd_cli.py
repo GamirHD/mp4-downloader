@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -25,6 +26,7 @@ QUALITY_OPTIONS = {
 }
 BROWSER_CHOICES = ("brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi")
 MAX_HISTORY_ENTRIES = 100
+URL_SPLIT_PATTERN = re.compile(r"[\s,]+")
 
 
 def default_download_dir() -> Path:
@@ -66,6 +68,18 @@ def clean_history_entry(entry: dict[str, Any]) -> dict[str, str] | None:
         value = entry.get(key)
         cleaned[key] = value.strip() if isinstance(value, str) and value.strip() else fallback
     return cleaned
+
+
+def extract_urls_from_text(text: str) -> list[str]:
+    urls: list[str] = []
+    seen: set[str] = set()
+    for value in URL_SPLIT_PATTERN.split(text.strip()):
+        url = value.strip()
+        if not url or url in seen:
+            continue
+        urls.append(url)
+        seen.add(url)
+    return urls
 
 
 def load_settings() -> dict[str, Any]:

@@ -92,6 +92,21 @@ class VdCliSharedStateTests(unittest.TestCase):
         self.assertIn("--cookies-from-browser", message)
         self.assertIn("GUI", message)
 
+    def test_extract_urls_from_text_splits_common_clipboard_separators(self) -> None:
+        urls = vd_cli.extract_urls_from_text(
+            " https://example.test/1\nhttps://example.test/2, https://example.test/3\t"
+            "https://example.test/1 "
+        )
+
+        self.assertEqual(
+            urls,
+            [
+                "https://example.test/1",
+                "https://example.test/2",
+                "https://example.test/3",
+            ],
+        )
+
 
 class VdCliOptionsTests(unittest.TestCase):
     def setUp(self) -> None:
