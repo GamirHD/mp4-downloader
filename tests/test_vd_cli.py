@@ -107,6 +107,20 @@ class VdCliSharedStateTests(unittest.TestCase):
             ],
         )
 
+    def test_extract_urls_from_text_trims_chat_link_wrappers(self) -> None:
+        urls = vd_cli.extract_urls_from_text(
+            "<https://example.test/1>, https://example.test/2. https://example.test/3!"
+        )
+
+        self.assertEqual(
+            urls,
+            [
+                "https://example.test/1",
+                "https://example.test/2",
+                "https://example.test/3",
+            ],
+        )
+
 
 class VdCliOptionsTests(unittest.TestCase):
     def setUp(self) -> None:

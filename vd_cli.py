@@ -27,6 +27,7 @@ QUALITY_OPTIONS = {
 BROWSER_CHOICES = ("brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi")
 MAX_HISTORY_ENTRIES = 100
 URL_SPLIT_PATTERN = re.compile(r"[\s,]+")
+TRAILING_URL_PUNCTUATION = ".,;:!?"
 
 
 def default_download_dir() -> Path:
@@ -74,7 +75,7 @@ def extract_urls_from_text(text: str) -> list[str]:
     urls: list[str] = []
     seen: set[str] = set()
     for value in URL_SPLIT_PATTERN.split(text.strip()):
-        url = value.strip()
+        url = value.strip().strip("<>").rstrip(TRAILING_URL_PUNCTUATION)
         if not url or url in seen:
             continue
         urls.append(url)

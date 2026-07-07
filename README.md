@@ -17,6 +17,7 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 - GUI cancel button for stopping long or accidental downloads
 - GUI download queue with add, remove, clear, and reorder controls
 - GUI paste handles links separated by new lines, spaces, tabs, or commas
+- GUI paste trims common chat wrappers like `<...>` and trailing punctuation
 - Shared download history for CLI and GUI with quick re-add in the GUI
 
 ## Before Installing
