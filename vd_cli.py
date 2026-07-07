@@ -83,6 +83,18 @@ def extract_urls_from_text(text: str) -> list[str]:
     return urls
 
 
+def normalize_url_args(values: list[str]) -> list[str]:
+    urls: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for url in extract_urls_from_text(value):
+            if url in seen:
+                continue
+            urls.append(url)
+            seen.add(url)
+    return urls
+
+
 def load_settings() -> dict[str, Any]:
     defaults = {"download_dir": str(default_download_dir()), "use_download_archive": False}
     path = config_path()
@@ -548,7 +560,8 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
-    if not args.urls:
+    urls = normalize_url_args(args.urls)
+    if not urls:
         parser.print_help()
         print()
         print("Weitere Befehle:")
@@ -571,14 +584,14 @@ def main(argv: list[str] | None = None) -> int:
     use_download_archive = args.archive or bool(settings.get("use_download_archive"))
     if use_download_archive:
         print(f"Download-Archiv: {download_archive_path()}")
-    if len(args.urls) > 1:
-        print(f"Links: {len(args.urls)}")
+    if len(urls) > 1:
+        print(f"Links: {len(urls)}")
 
     failures = 0
-    for index, url in enumerate(args.urls, start=1):
-        if len(args.urls) > 1:
+    for index, url in enumerate(urls, start=1):
+        if len(urls) > 1:
             print()
-            print(f"[{index}/{len(args.urls)}] {url}")
+            print(f"[{index}/{len(urls)}] {url}")
         try:
             info = download(
                 url,
@@ -595,7 +608,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Fehler: {friendly_error(str(exc))}", file=sys.stderr)
 
     if failures:
-        print(f"Fertig mit Fehlern: {failures} von {len(args.urls)} fehlgeschlagen.", file=sys.stderr)
+        print(f"Fertig mit Fehlern: {failures} von {len(urls)} fehlgeschlagen.", file=sys.stderr)
         return 1
 
     print("Download fertig.")

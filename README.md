@@ -154,6 +154,13 @@ Download multiple links:
 vd "https://www.youtube.com/watch?v=..." "https://www.youtube.com/watch?v=..."
 ```
 
+You can also paste a quoted block of links separated by new lines, spaces, tabs, or commas:
+
+```bash
+vd "https://www.youtube.com/watch?v=...
+https://www.youtube.com/watch?v=..."
+```
+
 Skip the quality menu:
 
 ```bash

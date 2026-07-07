@@ -121,6 +121,24 @@ class VdCliSharedStateTests(unittest.TestCase):
             ],
         )
 
+    def test_normalize_url_args_splits_quoted_link_blocks(self) -> None:
+        urls = vd_cli.normalize_url_args(
+            [
+                "https://example.test/1\nhttps://example.test/2,",
+                "<https://example.test/3>",
+                "https://example.test/1",
+            ]
+        )
+
+        self.assertEqual(
+            urls,
+            [
+                "https://example.test/1",
+                "https://example.test/2",
+                "https://example.test/3",
+            ],
+        )
+
 
 class VdCliOptionsTests(unittest.TestCase):
     def setUp(self) -> None:
