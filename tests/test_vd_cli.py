@@ -121,6 +121,26 @@ class VdCliSharedStateTests(unittest.TestCase):
             ],
         )
 
+    def test_extract_urls_from_text_ignores_non_url_words(self) -> None:
+        urls = vd_cli.extract_urls_from_text(
+            "please download this https://example.test/1 and not these words"
+        )
+
+        self.assertEqual(urls, ["https://example.test/1"])
+
+    def test_extract_urls_from_text_trims_markdown_link_suffixes(self) -> None:
+        urls = vd_cli.extract_urls_from_text(
+            "[one](https://example.test/1), (https://example.test/2)"
+        )
+
+        self.assertEqual(
+            urls,
+            [
+                "https://example.test/1",
+                "https://example.test/2",
+            ],
+        )
+
     def test_normalize_url_args_splits_quoted_link_blocks(self) -> None:
         urls = vd_cli.normalize_url_args(
             [
