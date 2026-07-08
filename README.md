@@ -212,20 +212,22 @@ The download archive and download history are stored next to the app settings an
 Install dependencies:
 
 ```bash
-python -m pip install -r requirements.txt
+# Windows: python
+# Linux/macOS: python3
+python3 -m pip install -r requirements.txt
 ```
 
 Run from source:
 
 ```bash
-python run.py
+python3 run.py
 ```
 
 Run checks:
 
 ```bash
-python -m py_compile mp4_downloader.py vd_cli.py run.py
-python -m unittest discover -s tests -v
+python3 -m py_compile mp4_downloader.py vd_cli.py run.py
+python3 -m unittest discover -s tests -v
 ```
 
 Build GUI locally:
