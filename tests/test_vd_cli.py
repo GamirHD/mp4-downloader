@@ -72,6 +72,16 @@ class VdCliSharedStateTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 parser.parse_args(["--limit", "0"])
 
+    def test_version_flag_prints_package_version(self) -> None:
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            with self.assertRaises(SystemExit) as context:
+                vd_cli.main(["--version"])
+
+        self.assertEqual(context.exception.code, 0)
+        self.assertIn(vd_cli.__version__, output.getvalue())
+
     def test_history_command_prints_requested_limit(self) -> None:
         folder = Path(self.temp_dir.name) / "Downloads"
         vd_cli.add_history_entry("https://example.test/1", title="One", quality_key="best", folder=folder)

@@ -202,6 +202,7 @@ vd settings
 vd settings --folder "$HOME/Videos"
 vd history
 vd qualities
+vd --version
 ```
 
 The download archive and download history are stored next to the app settings and are shared by GUI and CLI.
