@@ -185,6 +185,7 @@ Skip videos that were already downloaded before:
 
 ```bash
 vd "https://www.youtube.com/watch?v=..." --archive
+vd "https://www.youtube.com/watch?v=..." --no-archive
 vd settings --archive
 vd settings --no-archive
 ```

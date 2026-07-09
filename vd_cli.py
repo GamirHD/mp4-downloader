@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - handled at runtime
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.8.10"
+__version__ = "0.8.11"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualitaet", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
@@ -537,11 +537,20 @@ def build_parser() -> argparse.ArgumentParser:
         choices=BROWSER_CHOICES,
         help="Cookies aus einem lokalen Browser verwenden, z. B. bei YouTube-Login-Blockaden",
     )
-    parser.add_argument(
+    archive_group = parser.add_mutually_exclusive_group()
+    archive_group.add_argument(
         "--archive",
         action="store_true",
+        dest="archive",
         help="Bereits heruntergeladene Videos ueberspringen und im Download-Archiv merken",
     )
+    archive_group.add_argument(
+        "--no-archive",
+        action="store_false",
+        dest="archive",
+        help="Download-Archiv fuer diesen Download ausschalten",
+    )
+    parser.set_defaults(archive=None)
     return parser
 
 def main(argv: list[str] | None = None) -> int:
@@ -585,7 +594,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Cookies: {args.cookies_from_browser}")
     if args.playlist:
         print("Playlist-Modus: aktiviert")
-    use_download_archive = args.archive or bool(settings.get("use_download_archive"))
+    use_download_archive = bool(settings.get("use_download_archive")) if args.archive is None else args.archive
     if use_download_archive:
         print(f"Download-Archiv: {download_archive_path()}")
     if len(urls) > 1:

@@ -197,6 +197,16 @@ class VdCliOptionsTests(unittest.TestCase):
         self.assertEqual(options["cookiesfrombrowser"], ("firefox",))
         self.assertEqual(options["download_archive"], str(vd_cli.download_archive_path()))
 
+    def test_no_archive_flag_can_override_saved_default_on(self) -> None:
+        folder = Path(self.temp_dir.name) / "Downloads"
+        vd_cli.save_settings({"download_dir": str(folder), "use_download_archive": True})
+
+        with mock.patch.object(vd_cli, "choose_quality", return_value="best"):
+            with mock.patch.object(vd_cli, "download", return_value={"title": "One"}) as download_mock:
+                self.assertEqual(vd_cli.main(["https://example.test/1", "--no-archive"]), 0)
+
+        self.assertFalse(download_mock.call_args.kwargs["use_download_archive"])
+
 
 if __name__ == "__main__":
     unittest.main()
