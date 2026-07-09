@@ -31,6 +31,14 @@ class VdCliSharedStateTests(unittest.TestCase):
             {"download_dir": str(folder), "use_download_archive": True},
         )
 
+    def test_settings_ignore_non_string_download_dir(self) -> None:
+        vd_cli.save_settings({"download_dir": 123, "use_download_archive": True})
+
+        settings = vd_cli.load_settings()
+
+        self.assertEqual(settings["download_dir"], str(vd_cli.default_download_dir()))
+        self.assertTrue(settings["use_download_archive"])
+
     def test_history_deduplicates_newest_url_and_caps_entries(self) -> None:
         folder = Path(self.temp_dir.name) / "Downloads"
         vd_cli.add_history_entry("https://example.test/1", title="Old", quality_key="720p", folder=folder)

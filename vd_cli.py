@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - handled at runtime
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.8.11"
+__version__ = "0.8.12"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualitaet", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
@@ -109,8 +109,11 @@ def load_settings() -> dict[str, Any]:
         return defaults
     if not isinstance(data, dict):
         return defaults
+    download_dir = data.get("download_dir")
+    if not isinstance(download_dir, str) or not download_dir.strip():
+        download_dir = defaults["download_dir"]
     return {
-        "download_dir": data.get("download_dir") or defaults["download_dir"],
+        "download_dir": download_dir,
         "use_download_archive": bool(data.get("use_download_archive", defaults["use_download_archive"])),
     }
 
