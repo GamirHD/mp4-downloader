@@ -228,7 +228,7 @@ Run checks:
 
 ```bash
 python3 -m py_compile mp4_downloader.py vd_cli.py run.py
-python3 -m unittest discover -s tests -v
+python3 -m unittest -v
 ```
 
 Build GUI locally:
