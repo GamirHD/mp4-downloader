@@ -67,8 +67,8 @@ class DownloaderApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("760x660")
-        self.minsize(680, 620)
+        self.geometry("720x560")
+        self.minsize(640, 500)
 
         self.messages: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.download_thread: threading.Thread | None = None
@@ -82,6 +82,8 @@ class DownloaderApp(tk.Tk):
         self.archive_var = tk.BooleanVar(value=bool(self.settings["use_download_archive"]))
         self.status_var = tk.StringVar(value="Bereit")
         self.progress_var = tk.DoubleVar(value=0)
+        self.options_visible = tk.BooleanVar(value=False)
+        self.options_button_text = tk.StringVar(value="Optionen anzeigen")
 
         self._build_ui()
         self.after(100, self._poll_messages)
@@ -96,12 +98,12 @@ class DownloaderApp(tk.Tk):
         root = ttk.Frame(self, padding=18)
         root.grid(row=0, column=0, sticky="nsew")
         root.columnconfigure(0, weight=1)
-        root.rowconfigure(6, weight=1)
+        root.rowconfigure(4, weight=1)
 
         title = ttk.Label(root, text=APP_TITLE, font=("TkDefaultFont", 18, "bold"))
         title.grid(row=0, column=0, sticky="w")
 
-        url_frame = ttk.LabelFrame(root, text="Video-Links", padding=12)
+        url_frame = ttk.Frame(root, padding=(0, 14, 0, 0))
         url_frame.grid(row=1, column=0, sticky="ew", pady=(16, 10))
         url_frame.columnconfigure(0, weight=1)
         self.url_entry = ttk.Entry(url_frame)
@@ -129,8 +131,38 @@ class DownloaderApp(tk.Tk):
         ttk.Button(queue_buttons, text="Hoch", command=lambda: self._move_selected_url(-1)).grid(row=2, column=0, sticky="ew", pady=(6, 0))
         ttk.Button(queue_buttons, text="Runter", command=lambda: self._move_selected_url(1)).grid(row=3, column=0, sticky="ew", pady=(6, 0))
 
-        options = ttk.Frame(root)
-        options.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        primary_frame = ttk.Frame(root)
+        primary_frame.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        primary_frame.columnconfigure(2, weight=1)
+        self.download_button = ttk.Button(primary_frame, text="Download starten", command=self._start_download)
+        self.download_button.grid(row=0, column=0, sticky="w")
+        self.cancel_button = ttk.Button(primary_frame, text="Abbrechen", command=self._cancel_download, state="disabled")
+        self.cancel_button.grid(row=0, column=1, sticky="w", padx=(10, 0))
+        ttk.Label(primary_frame, textvariable=self.status_var).grid(row=0, column=2, sticky="e")
+
+        self.progress = ttk.Progressbar(root, variable=self.progress_var, maximum=100)
+        self.progress.grid(row=3, column=0, sticky="ew", pady=(0, 12))
+
+        secondary = ttk.Notebook(root)
+        secondary.grid(row=4, column=0, sticky="nsew")
+
+        settings_tab = ttk.Frame(secondary, padding=10)
+        history_tab = ttk.Frame(secondary, padding=10)
+        log_tab = ttk.Frame(secondary, padding=10)
+        secondary.add(settings_tab, text="Einstellungen")
+        secondary.add(history_tab, text="Verlauf")
+        secondary.add(log_tab, text="Status")
+
+        settings_tab.columnconfigure(0, weight=1)
+        ttk.Button(
+            settings_tab,
+            textvariable=self.options_button_text,
+            command=self._toggle_options,
+        ).grid(row=0, column=0, sticky="w")
+
+        options = ttk.Frame(settings_tab)
+        self.options_frame = options
+        options.grid(row=1, column=0, sticky="ew", pady=(10, 0))
         options.columnconfigure(1, weight=1)
 
         ttk.Label(options, text="Qualitaet").grid(row=0, column=0, sticky="w")
@@ -168,26 +200,17 @@ class DownloaderApp(tk.Tk):
             variable=self.archive_var,
             command=self._save_archive_setting,
         ).grid(row=2, column=2, columnspan=2, sticky="w", pady=(10, 0))
+        self._toggle_options(force=False)
 
-        action_frame = ttk.Frame(root)
-        action_frame.grid(row=3, column=0, sticky="ew", pady=(2, 10))
-        action_frame.columnconfigure(3, weight=1)
-        self.download_button = ttk.Button(action_frame, text="Download starten", command=self._start_download)
-        self.download_button.grid(row=0, column=0, sticky="w")
-        self.cancel_button = ttk.Button(action_frame, text="Abbrechen", command=self._cancel_download, state="disabled")
-        self.cancel_button.grid(row=0, column=1, sticky="w", padx=(10, 0))
-        ttk.Button(action_frame, text="Log leeren", command=self._clear_log).grid(row=0, column=2, sticky="w", padx=(10, 0))
-        ttk.Label(action_frame, textvariable=self.status_var).grid(row=0, column=3, sticky="e")
-
-        self.progress = ttk.Progressbar(root, variable=self.progress_var, maximum=100)
-        self.progress.grid(row=4, column=0, sticky="ew", pady=(0, 12))
-
-        history_frame = ttk.LabelFrame(root, text="Verlauf", padding=8)
-        history_frame.grid(row=5, column=0, sticky="ew", pady=(0, 12))
+        history_frame = ttk.Frame(history_tab)
+        history_frame.grid(row=0, column=0, sticky="nsew")
         history_frame.columnconfigure(0, weight=1)
+        history_frame.rowconfigure(0, weight=1)
+        history_tab.columnconfigure(0, weight=1)
+        history_tab.rowconfigure(0, weight=1)
 
         self.history_listbox = tk.Listbox(history_frame, height=4, activestyle="dotbox", selectmode="extended")
-        self.history_listbox.grid(row=0, column=0, sticky="ew")
+        self.history_listbox.grid(row=0, column=0, sticky="nsew")
         self.history_listbox.bind("<Double-Button-1>", lambda _event: self._add_selected_history_urls())
         history_scrollbar = ttk.Scrollbar(history_frame, command=self.history_listbox.yview)
         history_scrollbar.grid(row=0, column=1, sticky="ns")
@@ -199,17 +222,30 @@ class DownloaderApp(tk.Tk):
         ttk.Button(history_buttons, text="Aktualisieren", command=self._refresh_history).grid(row=1, column=0, sticky="ew", pady=(6, 0))
         ttk.Button(history_buttons, text="Verlauf loeschen", command=self._clear_history).grid(row=2, column=0, sticky="ew", pady=(6, 0))
 
-        log_frame = ttk.LabelFrame(root, text="Status", padding=8)
-        log_frame.grid(row=6, column=0, sticky="nsew")
+        log_frame = ttk.Frame(log_tab)
+        log_frame.grid(row=0, column=0, sticky="nsew")
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
+        log_tab.columnconfigure(0, weight=1)
+        log_tab.rowconfigure(0, weight=1)
 
         self.log_text = tk.Text(log_frame, height=10, wrap="word", state="disabled")
         self.log_text.grid(row=0, column=0, sticky="nsew")
         scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.log_text.configure(yscrollcommand=scrollbar.set)
+        ttk.Button(log_tab, text="Log leeren", command=self._clear_log).grid(row=1, column=0, sticky="w", pady=(8, 0))
         self._refresh_history()
+
+    def _toggle_options(self, force: bool | None = None) -> None:
+        visible = not self.options_visible.get() if force is None else force
+        self.options_visible.set(visible)
+        if visible:
+            self.options_frame.grid()
+            self.options_button_text.set("Optionen ausblenden")
+        else:
+            self.options_frame.grid_remove()
+            self.options_button_text.set("Optionen anzeigen")
 
     def _paste_url(self) -> None:
         try:

@@ -15,6 +15,7 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 - Optional browser-cookie support for links that require your local login session
 - Optional download archive to skip videos that were already downloaded before
 - GUI cancel button for stopping long or accidental downloads
+- Cleaner GUI start screen with advanced settings, history, and logs separated into tabs
 - GUI download queue with add, remove, clear, and reorder controls
 - GUI paste handles links separated by new lines, spaces, tabs, or commas
 - GUI paste trims common chat wrappers like `<...>` and trailing punctuation
@@ -89,10 +90,6 @@ Windows recommended:
 2. Run the setup.
 3. If `ffmpeg` is missing, the setup installs it automatically with `winget`.
 4. Start `mp4-downloader` from the Start menu or desktop shortcut.
-
-Windows portable:
-
-- Download `mp4-downloader.exe` and double-click it.
 
 Linux:
 
