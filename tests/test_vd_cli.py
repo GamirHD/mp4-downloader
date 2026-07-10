@@ -159,6 +159,20 @@ class VdCliSharedStateTests(unittest.TestCase):
             ],
         )
 
+    def test_extract_urls_from_text_keeps_balanced_url_brackets(self) -> None:
+        urls = vd_cli.extract_urls_from_text(
+            "https://example.test/watch(foo) https://example.test/list[bar] https://example.test/data{baz}"
+        )
+
+        self.assertEqual(
+            urls,
+            [
+                "https://example.test/watch(foo)",
+                "https://example.test/list[bar]",
+                "https://example.test/data{baz}",
+            ],
+        )
+
     def test_normalize_url_args_splits_quoted_link_blocks(self) -> None:
         urls = vd_cli.normalize_url_args(
             [

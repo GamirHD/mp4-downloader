@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - handled at runtime
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.8.12"
+__version__ = "0.8.13"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualitaet", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
@@ -29,6 +29,7 @@ BROWSER_CHOICES = ("brave", "chrome", "chromium", "edge", "firefox", "opera", "s
 MAX_HISTORY_ENTRIES = 100
 TRAILING_URL_PUNCTUATION = ".,;:!?"
 URL_CANDIDATE_PATTERN = re.compile(r"https?://[^\s,]+", re.IGNORECASE)
+WRAPPING_BRACKETS = (("(", ")"), ("[", "]"), ("{", "}"))
 
 
 def default_download_dir() -> Path:
@@ -72,13 +73,25 @@ def clean_history_entry(entry: dict[str, Any]) -> dict[str, str] | None:
     return cleaned
 
 
+def trim_url_suffix(value: str) -> str:
+    url = value.strip().strip("<>").rstrip(TRAILING_URL_PUNCTUATION)
+    while url:
+        changed = False
+        for opener, closer in WRAPPING_BRACKETS:
+            if url.endswith(closer) and url.count(closer) > url.count(opener):
+                url = url[:-1].rstrip(TRAILING_URL_PUNCTUATION)
+                changed = True
+                break
+        if not changed:
+            return url
+    return url
+
+
 def extract_urls_from_text(text: str) -> list[str]:
     urls: list[str] = []
     seen: set[str] = set()
     for match in URL_CANDIDATE_PATTERN.finditer(text):
-        value = match.group(0)
-        url = value.strip().strip("<>").rstrip(TRAILING_URL_PUNCTUATION)
-        url = url.rstrip(")]}")
+        url = trim_url_suffix(match.group(0))
         if not url or url in seen:
             continue
         urls.append(url)
