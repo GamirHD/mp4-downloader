@@ -33,6 +33,17 @@ except ImportError:  # pragma: no cover - handled in GUI startup
 
 APP_TITLE = "MP4/MP3 Downloader"
 
+BG_COLOR = "#f4f7fb"
+SURFACE_COLOR = "#ffffff"
+BORDER_COLOR = "#d9e2ec"
+TEXT_COLOR = "#172033"
+MUTED_TEXT_COLOR = "#64748b"
+PRIMARY_COLOR = "#2563eb"
+PRIMARY_HOVER_COLOR = "#1d4ed8"
+SECONDARY_COLOR = "#e8eef7"
+SECONDARY_HOVER_COLOR = "#dbe7f6"
+SELECTION_COLOR = "#dbeafe"
+
 
 GUI_QUALITY_KEYS = list(QUALITY_OPTIONS)
 GUI_QUALITY_LABELS = {key: values[0] for key, values in QUALITY_OPTIONS.items()}
@@ -91,19 +102,108 @@ class DownloaderApp(tk.Tk):
         if yt_dlp is None:
             self._set_idle_error("yt-dlp ist nicht installiert. Bitte `pip install -r requirements.txt` ausfuehren.")
 
+    def _configure_style(self) -> None:
+        self.configure(bg=BG_COLOR)
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        default_font = ("TkDefaultFont", 10)
+        style.configure(".", font=default_font, background=BG_COLOR, foreground=TEXT_COLOR)
+        style.configure("App.TFrame", background=BG_COLOR)
+        style.configure("Surface.TFrame", background=SURFACE_COLOR)
+        style.configure("App.TLabel", background=BG_COLOR, foreground=TEXT_COLOR)
+        style.configure("Surface.TLabel", background=SURFACE_COLOR, foreground=TEXT_COLOR)
+        style.configure("Title.TLabel", background=BG_COLOR, foreground=TEXT_COLOR, font=("TkDefaultFont", 18, "bold"))
+        style.configure("Muted.TLabel", background=BG_COLOR, foreground=MUTED_TEXT_COLOR)
+        style.configure(
+            "TButton",
+            background=SECONDARY_COLOR,
+            bordercolor=BORDER_COLOR,
+            focusthickness=1,
+            focuscolor=PRIMARY_COLOR,
+            padding=(12, 7),
+            relief="flat",
+        )
+        style.map(
+            "TButton",
+            background=[("active", SECONDARY_HOVER_COLOR), ("disabled", "#eef2f7")],
+            foreground=[("disabled", "#94a3b8")],
+        )
+        style.configure(
+            "Primary.TButton",
+            background=PRIMARY_COLOR,
+            foreground="#ffffff",
+            bordercolor=PRIMARY_COLOR,
+            padding=(16, 8),
+            relief="flat",
+        )
+        style.map(
+            "Primary.TButton",
+            background=[("active", PRIMARY_HOVER_COLOR), ("disabled", "#93c5fd")],
+            foreground=[("disabled", "#eef6ff")],
+        )
+        style.configure(
+            "TEntry",
+            fieldbackground=SURFACE_COLOR,
+            bordercolor=BORDER_COLOR,
+            lightcolor=BORDER_COLOR,
+            darkcolor=BORDER_COLOR,
+            padding=(8, 7),
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=SURFACE_COLOR,
+            background=SURFACE_COLOR,
+            bordercolor=BORDER_COLOR,
+            arrowcolor=MUTED_TEXT_COLOR,
+            padding=(8, 5),
+        )
+        style.map("TCombobox", fieldbackground=[("readonly", SURFACE_COLOR)])
+        style.configure(
+            "TNotebook",
+            background=BG_COLOR,
+            borderwidth=0,
+            tabmargins=(0, 8, 0, 0),
+        )
+        style.configure(
+            "TNotebook.Tab",
+            background=SECONDARY_COLOR,
+            foreground=MUTED_TEXT_COLOR,
+            padding=(14, 8),
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", SURFACE_COLOR), ("active", SECONDARY_HOVER_COLOR)],
+            foreground=[("selected", TEXT_COLOR)],
+        )
+        style.configure(
+            "TProgressbar",
+            background=PRIMARY_COLOR,
+            troughcolor="#e2e8f0",
+            bordercolor="#e2e8f0",
+            lightcolor=PRIMARY_COLOR,
+            darkcolor=PRIMARY_COLOR,
+        )
+        style.configure("TCheckbutton", background=BG_COLOR, foreground=TEXT_COLOR)
+        style.configure("Surface.TCheckbutton", background=SURFACE_COLOR, foreground=TEXT_COLOR)
+
     def _build_ui(self) -> None:
+        self._configure_style()
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-        root = ttk.Frame(self, padding=18)
+        root = ttk.Frame(self, padding=18, style="App.TFrame")
         root.grid(row=0, column=0, sticky="nsew")
         root.columnconfigure(0, weight=1)
         root.rowconfigure(4, weight=1)
 
-        title = ttk.Label(root, text=APP_TITLE, font=("TkDefaultFont", 18, "bold"))
+        title = ttk.Label(root, text=APP_TITLE, style="Title.TLabel")
         title.grid(row=0, column=0, sticky="w")
 
-        url_frame = ttk.Frame(root, padding=(0, 14, 0, 0))
+        url_frame = ttk.Frame(root, padding=(0, 14, 0, 0), style="App.TFrame")
         url_frame.grid(row=1, column=0, sticky="ew", pady=(16, 10))
         url_frame.columnconfigure(0, weight=1)
         self.url_entry = ttk.Entry(url_frame)
@@ -112,33 +212,38 @@ class DownloaderApp(tk.Tk):
         ttk.Button(url_frame, text="Einfuegen", command=self._paste_url).grid(row=0, column=1, sticky="ew", padx=(10, 0))
         ttk.Button(url_frame, text="Hinzufuegen", command=self._add_url).grid(row=0, column=2, sticky="ew", padx=(8, 0))
 
-        queue_frame = ttk.Frame(url_frame)
+        queue_frame = ttk.Frame(url_frame, style="App.TFrame")
         queue_frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(10, 0))
         queue_frame.columnconfigure(0, weight=1)
         queue_frame.rowconfigure(0, weight=1)
 
-        self.url_listbox = tk.Listbox(queue_frame, height=4, activestyle="dotbox", selectmode="extended")
+        self.url_listbox = self._create_listbox(queue_frame, height=4)
         self.url_listbox.grid(row=0, column=0, rowspan=2, sticky="ew")
         self.url_listbox.bind("<Delete>", lambda _event: self._remove_selected_urls())
         queue_scrollbar = ttk.Scrollbar(queue_frame, command=self.url_listbox.yview)
         queue_scrollbar.grid(row=0, column=1, rowspan=2, sticky="ns")
         self.url_listbox.configure(yscrollcommand=queue_scrollbar.set)
 
-        queue_buttons = ttk.Frame(queue_frame)
+        queue_buttons = ttk.Frame(queue_frame, style="App.TFrame")
         queue_buttons.grid(row=0, column=2, sticky="n", padx=(10, 0))
         ttk.Button(queue_buttons, text="Entfernen", command=self._remove_selected_urls).grid(row=0, column=0, sticky="ew")
         ttk.Button(queue_buttons, text="Leeren", command=self._clear_urls).grid(row=1, column=0, sticky="ew", pady=(6, 0))
         ttk.Button(queue_buttons, text="Hoch", command=lambda: self._move_selected_url(-1)).grid(row=2, column=0, sticky="ew", pady=(6, 0))
         ttk.Button(queue_buttons, text="Runter", command=lambda: self._move_selected_url(1)).grid(row=3, column=0, sticky="ew", pady=(6, 0))
 
-        primary_frame = ttk.Frame(root)
+        primary_frame = ttk.Frame(root, style="App.TFrame")
         primary_frame.grid(row=2, column=0, sticky="ew", pady=(0, 10))
         primary_frame.columnconfigure(2, weight=1)
-        self.download_button = ttk.Button(primary_frame, text="Download starten", command=self._start_download)
+        self.download_button = ttk.Button(
+            primary_frame,
+            text="Download starten",
+            command=self._start_download,
+            style="Primary.TButton",
+        )
         self.download_button.grid(row=0, column=0, sticky="w")
         self.cancel_button = ttk.Button(primary_frame, text="Abbrechen", command=self._cancel_download, state="disabled")
         self.cancel_button.grid(row=0, column=1, sticky="w", padx=(10, 0))
-        ttk.Label(primary_frame, textvariable=self.status_var).grid(row=0, column=2, sticky="e")
+        ttk.Label(primary_frame, textvariable=self.status_var, style="Muted.TLabel").grid(row=0, column=2, sticky="e")
 
         self.progress = ttk.Progressbar(root, variable=self.progress_var, maximum=100)
         self.progress.grid(row=3, column=0, sticky="ew", pady=(0, 12))
@@ -146,9 +251,9 @@ class DownloaderApp(tk.Tk):
         secondary = ttk.Notebook(root)
         secondary.grid(row=4, column=0, sticky="nsew")
 
-        settings_tab = ttk.Frame(secondary, padding=10)
-        history_tab = ttk.Frame(secondary, padding=10)
-        log_tab = ttk.Frame(secondary, padding=10)
+        settings_tab = ttk.Frame(secondary, padding=10, style="Surface.TFrame")
+        history_tab = ttk.Frame(secondary, padding=10, style="Surface.TFrame")
+        log_tab = ttk.Frame(secondary, padding=10, style="Surface.TFrame")
         secondary.add(settings_tab, text="Einstellungen")
         secondary.add(history_tab, text="Verlauf")
         secondary.add(log_tab, text="Status")
@@ -160,12 +265,12 @@ class DownloaderApp(tk.Tk):
             command=self._toggle_options,
         ).grid(row=0, column=0, sticky="w")
 
-        options = ttk.Frame(settings_tab)
+        options = ttk.Frame(settings_tab, style="Surface.TFrame")
         self.options_frame = options
         options.grid(row=1, column=0, sticky="ew", pady=(10, 0))
         options.columnconfigure(1, weight=1)
 
-        ttk.Label(options, text="Qualitaet").grid(row=0, column=0, sticky="w")
+        ttk.Label(options, text="Qualitaet", style="Surface.TLabel").grid(row=0, column=0, sticky="w")
         quality_box = ttk.Combobox(
             options,
             textvariable=self.quality_var,
@@ -175,7 +280,7 @@ class DownloaderApp(tk.Tk):
         )
         quality_box.grid(row=0, column=1, sticky="w", padx=(10, 20))
 
-        ttk.Label(options, text="Browser-Cookies").grid(row=0, column=2, sticky="w")
+        ttk.Label(options, text="Browser-Cookies", style="Surface.TLabel").grid(row=0, column=2, sticky="w")
         cookies_box = ttk.Combobox(
             options,
             textvariable=self.cookies_var,
@@ -185,7 +290,7 @@ class DownloaderApp(tk.Tk):
         )
         cookies_box.grid(row=0, column=3, sticky="w", padx=(10, 0))
 
-        ttk.Label(options, text="Ordner").grid(row=1, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(options, text="Ordner", style="Surface.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 0))
         ttk.Entry(options, textvariable=self.folder_var).grid(row=1, column=1, sticky="ew", padx=(10, 10), pady=(10, 0))
         ttk.Button(options, text="Waehlen", command=self._choose_folder).grid(row=1, column=2, pady=(10, 0))
         ttk.Button(options, text="Oeffnen", command=self._open_folder).grid(row=1, column=3, padx=(8, 0), pady=(10, 0))
@@ -193,49 +298,82 @@ class DownloaderApp(tk.Tk):
             options,
             text="Playlist komplett herunterladen",
             variable=self.playlist_var,
+            style="Surface.TCheckbutton",
         ).grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(10, 0))
         ttk.Checkbutton(
             options,
             text="Bereits heruntergeladene Videos ueberspringen",
             variable=self.archive_var,
             command=self._save_archive_setting,
+            style="Surface.TCheckbutton",
         ).grid(row=2, column=2, columnspan=2, sticky="w", pady=(10, 0))
         self._toggle_options(force=False)
 
-        history_frame = ttk.Frame(history_tab)
+        history_frame = ttk.Frame(history_tab, style="Surface.TFrame")
         history_frame.grid(row=0, column=0, sticky="nsew")
         history_frame.columnconfigure(0, weight=1)
         history_frame.rowconfigure(0, weight=1)
         history_tab.columnconfigure(0, weight=1)
         history_tab.rowconfigure(0, weight=1)
 
-        self.history_listbox = tk.Listbox(history_frame, height=4, activestyle="dotbox", selectmode="extended")
+        self.history_listbox = self._create_listbox(history_frame, height=4)
         self.history_listbox.grid(row=0, column=0, sticky="nsew")
         self.history_listbox.bind("<Double-Button-1>", lambda _event: self._add_selected_history_urls())
         history_scrollbar = ttk.Scrollbar(history_frame, command=self.history_listbox.yview)
         history_scrollbar.grid(row=0, column=1, sticky="ns")
         self.history_listbox.configure(yscrollcommand=history_scrollbar.set)
 
-        history_buttons = ttk.Frame(history_frame)
+        history_buttons = ttk.Frame(history_frame, style="Surface.TFrame")
         history_buttons.grid(row=0, column=2, sticky="n", padx=(10, 0))
         ttk.Button(history_buttons, text="Erneut hinzufuegen", command=self._add_selected_history_urls).grid(row=0, column=0, sticky="ew")
         ttk.Button(history_buttons, text="Aktualisieren", command=self._refresh_history).grid(row=1, column=0, sticky="ew", pady=(6, 0))
         ttk.Button(history_buttons, text="Verlauf loeschen", command=self._clear_history).grid(row=2, column=0, sticky="ew", pady=(6, 0))
 
-        log_frame = ttk.Frame(log_tab)
+        log_frame = ttk.Frame(log_tab, style="Surface.TFrame")
         log_frame.grid(row=0, column=0, sticky="nsew")
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         log_tab.columnconfigure(0, weight=1)
         log_tab.rowconfigure(0, weight=1)
 
-        self.log_text = tk.Text(log_frame, height=10, wrap="word", state="disabled")
+        self.log_text = tk.Text(
+            log_frame,
+            height=10,
+            wrap="word",
+            state="disabled",
+            background=SURFACE_COLOR,
+            foreground=TEXT_COLOR,
+            insertbackground=TEXT_COLOR,
+            selectbackground=SELECTION_COLOR,
+            selectforeground=TEXT_COLOR,
+            relief="flat",
+            borderwidth=0,
+            padx=10,
+            pady=8,
+        )
         self.log_text.grid(row=0, column=0, sticky="nsew")
         scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.log_text.configure(yscrollcommand=scrollbar.set)
         ttk.Button(log_tab, text="Log leeren", command=self._clear_log).grid(row=1, column=0, sticky="w", pady=(8, 0))
         self._refresh_history()
+
+    def _create_listbox(self, parent: tk.Misc, height: int) -> tk.Listbox:
+        return tk.Listbox(
+            parent,
+            height=height,
+            activestyle="none",
+            selectmode="extended",
+            background=SURFACE_COLOR,
+            foreground=TEXT_COLOR,
+            selectbackground=SELECTION_COLOR,
+            selectforeground=TEXT_COLOR,
+            highlightthickness=1,
+            highlightbackground=BORDER_COLOR,
+            highlightcolor=PRIMARY_COLOR,
+            relief="flat",
+            borderwidth=0,
+        )
 
     def _toggle_options(self, force: bool | None = None) -> None:
         visible = not self.options_visible.get() if force is None else force
