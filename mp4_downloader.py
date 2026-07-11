@@ -22,6 +22,7 @@ from vd_cli import (
     history_path,
     load_history,
     load_settings,
+    no_urls_found_message,
     save_settings,
 )
 
@@ -405,6 +406,7 @@ class DownloaderApp(tk.Tk):
     def _add_urls_from_text(self, text: str) -> None:
         urls = extract_urls_from_text(text)
         if not urls:
+            self._log(no_urls_found_message())
             return
         existing = set(self._read_urls())
         added = 0

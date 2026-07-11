@@ -191,6 +191,15 @@ class VdCliSharedStateTests(unittest.TestCase):
             ],
         )
 
+    def test_main_explains_when_arguments_contain_no_urls(self) -> None:
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = vd_cli.main(["not-a-link"])
+
+        self.assertEqual(result, 2)
+        self.assertIn(vd_cli.no_urls_found_message(), output.getvalue())
+
 
 class VdCliOptionsTests(unittest.TestCase):
     def setUp(self) -> None:

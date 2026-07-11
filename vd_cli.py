@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - handled at runtime
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.8.15"
+__version__ = "0.8.16"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualitaet", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
@@ -109,6 +109,10 @@ def normalize_url_args(values: list[str]) -> list[str]:
             urls.append(url)
             seen.add(url)
     return urls
+
+
+def no_urls_found_message() -> str:
+    return "Kein unterstuetzter Link erkannt. Bitte eine URL mit http:// oder https:// einfuegen."
 
 
 def load_settings() -> dict[str, Any]:
@@ -593,6 +597,9 @@ def main(argv: list[str] | None = None) -> int:
     if not urls:
         parser.print_help()
         print()
+        if args.urls:
+            print(no_urls_found_message())
+            print()
         print("Weitere Befehle:")
         print("  vd settings              Settings-Menue oeffnen")
         print("  vd settings --folder PFAD Downloadordner aendern")
