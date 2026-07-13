@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - handled at runtime
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.8.16"
+__version__ = "0.8.17"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualitaet", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
@@ -196,6 +196,19 @@ def add_history_entry(
     }
     entries = [item for item in load_history() if item.get("url") != url]
     save_history([entry, *entries])
+
+
+def format_history_timestamp(value: str) -> str:
+    text = value.strip()
+    if not text or text == "?":
+        return "?"
+    try:
+        timestamp = datetime.fromisoformat(text)
+    except ValueError:
+        return text
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp.astimezone().strftime("%Y-%m-%d %H:%M")
 
 
 def friendly_error(raw_error: str) -> str:
@@ -454,7 +467,7 @@ def history_command(args: argparse.Namespace) -> int:
         print(f"{index}. {title}")
         print(f"   URL: {url}")
         print(f"   Qualitaet: {quality}  Ordner: {folder}")
-        print(f"   Zeit: {downloaded_at}")
+        print(f"   Zeit: {format_history_timestamp(downloaded_at)}")
     print(f"Verlauf-Datei: {history_path()}")
     return 0
 

@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -103,6 +104,11 @@ class VdCliSharedStateTests(unittest.TestCase):
         text = output.getvalue()
         self.assertIn("1. Two", text)
         self.assertNotIn("2. One", text)
+
+    def test_format_history_timestamp_returns_local_readable_string(self) -> None:
+        value = "2026-07-13T12:34:56+00:00"
+        expected = datetime.fromisoformat(value).astimezone().strftime("%Y-%m-%d %H:%M")
+        self.assertEqual(vd_cli.format_history_timestamp(value), expected)
 
     def test_cookie_error_points_to_existing_cookie_controls(self) -> None:
         message = vd_cli.friendly_error("Sign in to confirm you're not a bot. Use cookies.")

@@ -18,6 +18,7 @@ from vd_cli import (
     clear_history,
     download_archive_path,
     extract_urls_from_text,
+    format_history_timestamp,
     friendly_error,
     history_path,
     load_history,
@@ -549,8 +550,8 @@ class DownloaderApp(tk.Tk):
             title = entry.get("title") or "Video"
             quality = entry.get("quality") or "?"
             downloaded_at = str(entry.get("downloaded_at") or "")
-            short_date = downloaded_at[:10] if downloaded_at else "?"
-            self.history_listbox.insert("end", f"{short_date} | {quality} | {title}")
+            shown_time = format_history_timestamp(downloaded_at) if downloaded_at else "?"
+            self.history_listbox.insert("end", f"{shown_time} | {quality} | {title}")
 
     def _add_selected_history_urls(self) -> None:
         selected = self.history_listbox.curselection()
