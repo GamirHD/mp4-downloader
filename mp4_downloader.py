@@ -487,6 +487,11 @@ class DownloaderApp(tk.Tk):
         if self.download_thread and self.download_thread.is_alive():
             return
 
+        pending_text = self.url_entry.get().strip()
+        if pending_text:
+            self._add_urls_from_text(pending_text)
+            self.url_entry.delete(0, "end")
+
         urls = self._read_urls()
         folder = Path(self.folder_var.get()).expanduser()
         quality = self.quality_var.get().split(" - ", 1)[0]
