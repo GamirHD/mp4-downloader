@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - handled at runtime
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.8.17"
+__version__ = "0.8.18"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualitaet", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),

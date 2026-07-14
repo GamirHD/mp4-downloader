@@ -581,6 +581,9 @@ class DownloaderApp(tk.Tk):
         cookies_from_browser: str | None,
         use_download_archive: bool,
     ) -> None:
+        if allow_playlist:
+            self.messages.put(("log", "Playlist-Modus aktiviert."))
+
         def hook(data: dict[str, Any]) -> None:
             if self.cancel_requested.is_set():
                 raise DownloadCancelled("Download abgebrochen.")
@@ -618,8 +621,6 @@ class DownloaderApp(tk.Tk):
             if len(urls) > 1:
                 self.messages.put(("log", f"[{index}/{len(urls)}] {url}"))
                 self.messages.put(("status", f"Download {index} von {len(urls)} laeuft..."))
-            elif allow_playlist:
-                self.messages.put(("log", "Playlist-Modus aktiviert."))
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as downloader:
                     info = downloader.extract_info(url, download=True)
