@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - handled at runtime
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.8.19"
+__version__ = "0.8.20"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualitaet", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
@@ -115,6 +115,20 @@ def no_urls_found_message() -> str:
     return "Kein unterstuetzter Link erkannt. Bitte eine URL mit http:// oder https:// einfuegen."
 
 
+def _coerce_bool(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"true", "yes", "1", "on"}:
+            return True
+        if text in {"false", "no", "0", "off"}:
+            return False
+    return default
+
+
 def load_settings() -> dict[str, Any]:
     defaults = {"download_dir": str(default_download_dir()), "use_download_archive": False}
     path = config_path()
@@ -131,7 +145,10 @@ def load_settings() -> dict[str, Any]:
         download_dir = defaults["download_dir"]
     return {
         "download_dir": download_dir,
-        "use_download_archive": bool(data.get("use_download_archive", defaults["use_download_archive"])),
+        "use_download_archive": _coerce_bool(
+            data.get("use_download_archive", defaults["use_download_archive"]),
+            defaults["use_download_archive"],
+        ),
     }
 
 
