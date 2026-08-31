@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - handled at runtime
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.8.24"
+__version__ = "0.8.25"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualität", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
@@ -250,8 +250,7 @@ def friendly_error(raw_error: str) -> str:
     if "sign in to confirm" in lower or "bot" in lower or "cookies" in lower:
         return (
             "YouTube blockiert diesen Link oder verlangt eine Browser-Session. "
-            "Versuche es mit Browser-Cookies, z. B. `--cookies-from-browser firefox`, "
-            "oder waehle in der GUI den passenden Browser aus."
+            "Versuche es in der CLI mit Browser-Cookies, z. B. `--cookies-from-browser firefox`."
         )
     if "ffmpeg" in lower:
         return "ffmpeg fehlt oder wurde nicht gefunden. Installiere ffmpeg und starte das Terminal neu."

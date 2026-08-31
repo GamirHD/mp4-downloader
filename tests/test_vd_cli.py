@@ -119,11 +119,11 @@ class VdCliSharedStateTests(unittest.TestCase):
         expected = datetime.fromisoformat(value).astimezone().strftime("%Y-%m-%d %H:%M")
         self.assertEqual(vd_cli.format_history_timestamp(value), expected)
 
-    def test_cookie_error_points_to_existing_cookie_controls(self) -> None:
+    def test_cookie_error_points_to_cli_cookie_controls(self) -> None:
         message = vd_cli.friendly_error("Sign in to confirm you're not a bot. Use cookies.")
 
         self.assertIn("--cookies-from-browser", message)
-        self.assertIn("GUI", message)
+        self.assertNotIn("GUI", message)
 
     def test_extract_urls_from_text_splits_common_clipboard_separators(self) -> None:
         urls = vd_cli.extract_urls_from_text(

@@ -12,14 +12,14 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 - CLI command: `vd "https://..."`
 - Saved default download folder shared by GUI and CLI
 - Clearer error messages for common YouTube blocks
-- Optional browser-cookie support for links that require your local login session
-- Optional download archive to skip videos that were already downloaded before
+- Optional CLI browser-cookie support for links that require your local login session
+- Optional CLI download archive to skip videos that were already downloaded before
 - GUI cancel button for stopping long or accidental downloads
 - Cleaner GUI flow with separate link, options, and download log steps
 - Refined GUI theme with calmer colors, clearer action buttons, and cleaner input/list areas
 - High-DPI aware GUI rendering for sharper text and controls on scaled displays
-- GUI download queue with add, paste, and selected-item removal
-- GUI paste handles links separated by new lines, spaces, tabs, or commas
+- GUI download queue with add and selected-item removal
+- GUI link input handles links separated by new lines, spaces, tabs, or commas
 - GUI download start also uses a link that is still in the input field
 - GUI paste trims common chat wrappers like `<...>` and trailing punctuation
 - GUI and CLI explain when pasted text contains no supported link
@@ -207,7 +207,7 @@ vd qualities
 vd --version
 ```
 
-The download archive and download history are stored next to the app settings and are shared by GUI and CLI.
+The CLI download archive and shared download history are stored next to the app settings.
 
 ## Development
 

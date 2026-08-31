@@ -11,11 +11,9 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from vd_cli import (
-    BROWSER_CHOICES,
     QUALITY_OPTIONS,
     add_history_entry,
     build_ydl_options,
-    download_archive_path,
     extract_urls_from_text,
     friendly_error,
     load_history,
@@ -47,7 +45,6 @@ SELECTION_COLOR = "#dbeafe"
 GUI_QUALITY_KEYS = list(QUALITY_OPTIONS)
 GUI_QUALITY_LABELS = {key: values[0] for key, values in QUALITY_OPTIONS.items()}
 GUI_QUALITY_CHOICES = [f"{key} - {GUI_QUALITY_LABELS[key]}" for key in GUI_QUALITY_KEYS]
-BROWSER_COOKIE_CHOICES = ["Keine"] + list(BROWSER_CHOICES)
 
 
 def enable_high_dpi_rendering() -> None:
@@ -102,9 +99,6 @@ class DownloaderApp(tk.Tk):
 
         self.folder_var = tk.StringVar(value=self.settings["download_dir"])
         self.quality_var = tk.StringVar(value=GUI_QUALITY_CHOICES[0])
-        self.cookies_var = tk.StringVar(value="Keine")
-        self.playlist_var = tk.BooleanVar(value=False)
-        self.archive_var = tk.BooleanVar(value=bool(self.settings["use_download_archive"]))
         self.status_var = tk.StringVar(value="Bereit")
         self.progress_var = tk.DoubleVar(value=0)
         self.queued_urls: list[str] = []
@@ -350,37 +344,12 @@ class DownloaderApp(tk.Tk):
         )
         quality_box.grid(row=1, column=1, sticky="ew", padx=(10, 0))
 
-        ttk.Label(options, text="Browser-Cookies", style="Surface.TLabel").grid(
-            row=2, column=0, sticky="w", pady=(12, 0)
-        )
-        cookies_box = ttk.Combobox(
-            options,
-            textvariable=self.cookies_var,
-            values=BROWSER_COOKIE_CHOICES,
-            state="readonly",
-            width=14,
-        )
-        cookies_box.grid(row=2, column=1, sticky="ew", padx=(10, 0), pady=(12, 0))
-
-        ttk.Label(options, text="Ordner", style="Surface.TLabel").grid(row=3, column=0, sticky="w", pady=(12, 0))
+        ttk.Label(options, text="Ordner", style="Surface.TLabel").grid(row=2, column=0, sticky="w", pady=(12, 0))
         ttk.Entry(options, textvariable=self.folder_var).grid(
-            row=3, column=1, sticky="ew", padx=(10, 10), pady=(12, 0)
+            row=2, column=1, sticky="ew", padx=(10, 10), pady=(12, 0)
         )
-        self._button(options, "Wählen", self._choose_folder).grid(row=3, column=2, pady=(12, 0))
-        self._button(options, "Öffnen", self._open_folder).grid(row=3, column=3, padx=(8, 0), pady=(12, 0))
-        ttk.Checkbutton(
-            options,
-            text="Playlist komplett herunterladen",
-            variable=self.playlist_var,
-            style="Surface.TCheckbutton",
-        ).grid(row=4, column=1, sticky="w", padx=(10, 0), pady=(14, 0))
-        ttk.Checkbutton(
-            options,
-            text="Bereits heruntergeladene Videos überspringen",
-            variable=self.archive_var,
-            command=self._save_archive_setting,
-            style="Surface.TCheckbutton",
-        ).grid(row=5, column=1, columnspan=3, sticky="w", padx=(10, 0), pady=(10, 0))
+        self._button(options, "Wählen", self._choose_folder).grid(row=2, column=2, pady=(12, 0))
+        self._button(options, "Öffnen", self._open_folder).grid(row=2, column=3, padx=(8, 0), pady=(12, 0))
 
         self._button(self.footer_frame, "Zurück", self._show_links_step).grid(row=0, column=0, sticky="e", padx=(0, 8))
         self.primary_action_button = self._button(
@@ -531,12 +500,6 @@ class DownloaderApp(tk.Tk):
             save_settings(self.settings)
             self._log(f"Downloadordner gespeichert: {folder}")
 
-    def _save_archive_setting(self) -> None:
-        self.settings["use_download_archive"] = self.archive_var.get()
-        save_settings(self.settings)
-        state = "aktiviert" if self.archive_var.get() else "deaktiviert"
-        self._log(f"Download-Archiv {state}: {download_archive_path()}")
-
     def _open_folder(self) -> None:
         folder = Path(self.folder_var.get()).expanduser()
         try:
@@ -565,11 +528,6 @@ class DownloaderApp(tk.Tk):
         urls = self._read_urls()
         folder = Path(self.folder_var.get()).expanduser()
         quality = self.quality_var.get().split(" - ", 1)[0]
-        cookies_from_browser = self.cookies_var.get()
-        allow_playlist = self.playlist_var.get()
-        use_download_archive = self.archive_var.get()
-        if cookies_from_browser == "Keine":
-            cookies_from_browser = None
 
         if yt_dlp is None:
             messagebox.showerror(APP_TITLE, "yt-dlp ist nicht installiert.")
@@ -584,7 +542,7 @@ class DownloaderApp(tk.Tk):
             return
 
         self.settings["download_dir"] = str(folder)
-        self.settings["use_download_archive"] = use_download_archive
+        self.settings["use_download_archive"] = False
         save_settings(self.settings)
         self.cancel_requested.clear()
         self.progress_var.set(0)
@@ -595,12 +553,9 @@ class DownloaderApp(tk.Tk):
             self._log(f"Starte Download: {urls[0]}")
         else:
             self._log(f"Starte Batch-Download mit {len(urls)} Links.")
-        if use_download_archive:
-            self._log(f"Download-Archiv aktiv: {download_archive_path()}")
-
         self.download_thread = threading.Thread(
             target=self._download_worker,
-            args=(urls, folder, quality, allow_playlist, cookies_from_browser, use_download_archive),
+            args=(urls, folder, quality),
             daemon=True,
         )
         self.download_thread.start()
@@ -621,13 +576,7 @@ class DownloaderApp(tk.Tk):
         urls: list[str],
         folder: Path,
         quality_key: str,
-        allow_playlist: bool,
-        cookies_from_browser: str | None,
-        use_download_archive: bool,
     ) -> None:
-        if allow_playlist:
-            self.messages.put(("log", "Playlist-Modus aktiviert."))
-
         def hook(data: dict[str, Any]) -> None:
             if self.cancel_requested.is_set():
                 raise DownloadCancelled("Download abgebrochen.")
@@ -650,9 +599,9 @@ class DownloaderApp(tk.Tk):
         ydl_opts = build_ydl_options(
             quality_key,
             folder,
-            allow_playlist=allow_playlist,
-            cookies_from_browser=cookies_from_browser,
-            use_download_archive=use_download_archive,
+            allow_playlist=False,
+            cookies_from_browser=None,
+            use_download_archive=False,
             progress_hooks=[hook],
             logger=QueueLogger(self.messages),
         )
