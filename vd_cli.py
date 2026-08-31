@@ -28,7 +28,11 @@ QUALITY_OPTIONS = {
 BROWSER_CHOICES = ("brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi")
 MAX_HISTORY_ENTRIES = 100
 TRAILING_URL_PUNCTUATION = ".,;:!?"
-URL_CANDIDATE_PATTERN = re.compile(r"https?://[^\s,]+", re.IGNORECASE)
+URL_CANDIDATE_PATTERN = re.compile(
+    r"(?<![@\w.-])(?:https?://)?(?:www\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?:/[^\s,]*)?",
+    re.IGNORECASE,
+)
 WRAPPING_BRACKETS = (("(", ")"), ("[", "]"), ("{", "}"))
 
 
@@ -74,7 +78,12 @@ def clean_history_entry(entry: dict[str, Any]) -> dict[str, str] | None:
 
 
 def trim_url_suffix(value: str) -> str:
-    url = value.strip().strip("<>").rstrip(TRAILING_URL_PUNCTUATION)
+    url = value.strip()
+    while url:
+        cleaned = url.strip("<>").rstrip(TRAILING_URL_PUNCTUATION)
+        if cleaned == url:
+            break
+        url = cleaned
     while url:
         changed = False
         for opener, closer in WRAPPING_BRACKETS:
@@ -87,11 +96,18 @@ def trim_url_suffix(value: str) -> str:
     return url
 
 
+def normalize_url_candidate(value: str) -> str:
+    url = trim_url_suffix(value)
+    if url and not re.match(r"https?://", url, re.IGNORECASE):
+        url = f"https://{url}"
+    return url
+
+
 def extract_urls_from_text(text: str) -> list[str]:
     urls: list[str] = []
     seen: set[str] = set()
     for match in URL_CANDIDATE_PATTERN.finditer(text):
-        url = trim_url_suffix(match.group(0))
+        url = normalize_url_candidate(match.group(0))
         if not url or url in seen:
             continue
         urls.append(url)

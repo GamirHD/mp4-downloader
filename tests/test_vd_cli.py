@@ -161,6 +161,25 @@ class VdCliSharedStateTests(unittest.TestCase):
 
         self.assertEqual(urls, ["https://example.test/1"])
 
+    def test_extract_urls_from_text_accepts_links_without_scheme(self) -> None:
+        urls = vd_cli.extract_urls_from_text(
+            "youtube.com/watch?v=abc www.example.test/video <youtu.be/xyz>."
+        )
+
+        self.assertEqual(
+            urls,
+            [
+                "https://youtube.com/watch?v=abc",
+                "https://www.example.test/video",
+                "https://youtu.be/xyz",
+            ],
+        )
+
+    def test_extract_urls_from_text_ignores_email_addresses(self) -> None:
+        urls = vd_cli.extract_urls_from_text("mail test@example.com and use example.test/video")
+
+        self.assertEqual(urls, ["https://example.test/video"])
+
     def test_extract_urls_from_text_trims_markdown_link_suffixes(self) -> None:
         urls = vd_cli.extract_urls_from_text(
             "[one](https://example.test/1), (https://example.test/2)"
