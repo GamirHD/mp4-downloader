@@ -17,13 +17,13 @@ except ImportError:  # pragma: no cover - handled at runtime
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.8.25"
+__version__ = "0.8.26"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualität", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
-    "1080p": ("1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
-    "720p": ("720p", "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/best[height<=720]", "mp4"),
-    "480p": ("480p", "bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/best[height<=480]", "mp4"),
-    "mp3": ("MP3", "bestaudio/best", "mp3"),
+    "1080p": ("Bis 1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
+    "720p": ("Bis 720p", "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/best[height<=720]", "mp4"),
+    "480p": ("Bis 480p", "bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/best[height<=480]", "mp4"),
+    "mp3": ("Nur Audio (MP3)", "bestaudio/best", "mp3"),
 }
 BROWSER_CHOICES = ("brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi")
 MAX_HISTORY_ENTRIES = 100

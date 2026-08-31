@@ -6,7 +6,7 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 
 - Download one or more video links as MP4 or MP3
 - Optional playlist downloads when explicitly enabled
-- Quality choices: best, 1080p, 720p, 480p, MP3
+- Quality choices: best quality, up to 1080p, up to 720p, up to 480p, MP3 audio
 - Windows/Linux/macOS GUI builds in GitHub releases
 - Windows setup installer for the GUI
 - CLI command: `vd "https://..."`

@@ -44,7 +44,8 @@ SELECTION_COLOR = "#dbeafe"
 
 GUI_QUALITY_KEYS = list(QUALITY_OPTIONS)
 GUI_QUALITY_LABELS = {key: values[0] for key, values in QUALITY_OPTIONS.items()}
-GUI_QUALITY_CHOICES = [f"{key} - {GUI_QUALITY_LABELS[key]}" for key in GUI_QUALITY_KEYS]
+GUI_QUALITY_CHOICES = [GUI_QUALITY_LABELS[key] for key in GUI_QUALITY_KEYS]
+GUI_QUALITY_BY_LABEL = dict(zip(GUI_QUALITY_CHOICES, GUI_QUALITY_KEYS))
 
 
 def enable_high_dpi_rendering() -> None:
@@ -527,7 +528,7 @@ class DownloaderApp(tk.Tk):
 
         urls = self._read_urls()
         folder = Path(self.folder_var.get()).expanduser()
-        quality = self.quality_var.get().split(" - ", 1)[0]
+        quality = GUI_QUALITY_BY_LABEL.get(self.quality_var.get(), GUI_QUALITY_KEYS[0])
 
         if yt_dlp is None:
             messagebox.showerror(APP_TITLE, "yt-dlp ist nicht installiert.")
