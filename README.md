@@ -15,15 +15,15 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 - Optional browser-cookie support for links that require your local login session
 - Optional download archive to skip videos that were already downloaded before
 - GUI cancel button for stopping long or accidental downloads
-- Cleaner GUI start screen with advanced settings, history, and logs separated into tabs
-- Refined GUI theme with calmer colors, clearer buttons, and cleaner input/list areas
+- Cleaner GUI flow with separate link, options, and download log steps
+- Refined GUI theme with calmer colors, clearer action buttons, and cleaner input/list areas
 - High-DPI aware GUI rendering for sharper text and controls on scaled displays
-- GUI download queue with add, remove, clear, and reorder controls
+- GUI download queue with add, paste, and selected-item removal
 - GUI paste handles links separated by new lines, spaces, tabs, or commas
 - GUI download start also uses a link that is still in the input field
 - GUI paste trims common chat wrappers like `<...>` and trailing punctuation
 - GUI and CLI explain when pasted text contains no supported link
-- Shared download history for CLI and GUI with quick re-add in the GUI
+- Shared download history for CLI and GUI
 
 ## Before Installing
 

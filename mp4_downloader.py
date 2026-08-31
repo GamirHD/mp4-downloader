@@ -15,12 +15,9 @@ from vd_cli import (
     QUALITY_OPTIONS,
     add_history_entry,
     build_ydl_options,
-    clear_history,
     download_archive_path,
     extract_urls_from_text,
-    format_history_timestamp,
     friendly_error,
-    history_path,
     load_history,
     load_settings,
     no_urls_found_message,
@@ -110,8 +107,14 @@ class DownloaderApp(tk.Tk):
         self.archive_var = tk.BooleanVar(value=bool(self.settings["use_download_archive"]))
         self.status_var = tk.StringVar(value="Bereit")
         self.progress_var = tk.DoubleVar(value=0)
-        self.options_visible = tk.BooleanVar(value=False)
-        self.options_button_text = tk.StringVar(value="Optionen anzeigen")
+        self.queued_urls: list[str] = []
+        self.url_listbox: tk.Listbox | None = None
+        self.log_text: tk.Text | None = None
+        self.pending_log_messages: list[str] = []
+        self.content_frame: ttk.Frame | None = None
+        self.footer_frame: ttk.Frame | None = None
+        self.primary_action_button: tk.Button | None = None
+        self.cancel_button: tk.Button | None = None
 
         self._build_ui()
         self.after(100, self._poll_messages)
@@ -188,23 +191,6 @@ class DownloaderApp(tk.Tk):
         )
         style.map("TCombobox", fieldbackground=[("readonly", SURFACE_COLOR)])
         style.configure(
-            "TNotebook",
-            background=BG_COLOR,
-            borderwidth=0,
-            tabmargins=(0, 8, 0, 0),
-        )
-        style.configure(
-            "TNotebook.Tab",
-            background=SECONDARY_COLOR,
-            foreground=MUTED_TEXT_COLOR,
-            padding=(14, 8),
-        )
-        style.map(
-            "TNotebook.Tab",
-            background=[("selected", SURFACE_COLOR), ("active", SECONDARY_HOVER_COLOR)],
-            foreground=[("selected", TEXT_COLOR)],
-        )
-        style.configure(
             "TProgressbar",
             background=PRIMARY_COLOR,
             troughcolor="#e2e8f0",
@@ -223,79 +209,138 @@ class DownloaderApp(tk.Tk):
         root = ttk.Frame(self, padding=18, style="App.TFrame")
         root.grid(row=0, column=0, sticky="nsew")
         root.columnconfigure(0, weight=1)
-        root.rowconfigure(4, weight=1)
+        root.rowconfigure(1, weight=1)
 
         title = ttk.Label(root, text=APP_TITLE, style="Title.TLabel")
         title.grid(row=0, column=0, sticky="w")
 
-        url_frame = ttk.Frame(root, padding=(0, 14, 0, 0), style="App.TFrame")
-        url_frame.grid(row=1, column=0, sticky="ew", pady=(16, 10))
+        self.content_frame = ttk.Frame(root, style="App.TFrame")
+        self.content_frame.grid(row=1, column=0, sticky="nsew", pady=(18, 12))
+        self.content_frame.columnconfigure(0, weight=1)
+        self.content_frame.rowconfigure(0, weight=1)
+
+        self.progress = ttk.Progressbar(root, variable=self.progress_var, maximum=100)
+        self.progress.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        self.progress.grid_remove()
+
+        status_row = ttk.Frame(root, style="App.TFrame")
+        status_row.grid(row=3, column=0, sticky="ew")
+        status_row.columnconfigure(0, weight=1)
+        ttk.Label(status_row, textvariable=self.status_var, style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+
+        self.footer_frame = ttk.Frame(status_row, style="App.TFrame")
+        self.footer_frame.grid(row=0, column=1, sticky="e")
+
+        self._show_links_step()
+
+    def _clear_content(self) -> None:
+        if self.content_frame is not None:
+            for child in self.content_frame.winfo_children():
+                child.destroy()
+        self.url_listbox = None
+        self.log_text = None
+        if self.footer_frame is not None:
+            for child in self.footer_frame.winfo_children():
+                child.destroy()
+
+    def _button(
+        self,
+        parent: tk.Misc,
+        text: str,
+        command: Any,
+        *,
+        variant: str = "secondary",
+    ) -> tk.Button:
+        colors = {
+            "primary": (PRIMARY_COLOR, PRIMARY_HOVER_COLOR, "#ffffff"),
+            "danger": ("#dc2626", "#b91c1c", "#ffffff"),
+            "secondary": (SECONDARY_COLOR, SECONDARY_HOVER_COLOR, TEXT_COLOR),
+        }
+        background, active_background, foreground = colors[variant]
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            background=background,
+            activebackground=active_background,
+            foreground=foreground,
+            activeforeground=foreground,
+            disabledforeground="#dbe4ef" if variant != "secondary" else "#94a3b8",
+            relief="flat",
+            borderwidth=0,
+            cursor="hand2",
+            font=("TkDefaultFont", 10, "bold"),
+            padx=18,
+            pady=9,
+            highlightthickness=0,
+        )
+
+    def _show_links_step(self) -> None:
+        self._clear_content()
+        self.progress.grid_remove()
+        self.status_var.set("Links einfuegen")
+        if self.content_frame is None or self.footer_frame is None:
+            return
+
+        link_panel = ttk.Frame(self.content_frame, style="App.TFrame")
+        link_panel.grid(row=0, column=0, sticky="nsew")
+        link_panel.columnconfigure(0, weight=1)
+        link_panel.rowconfigure(2, weight=1)
+
+        ttk.Label(link_panel, text="Links", style="Title.TLabel").grid(row=0, column=0, sticky="w")
+
+        url_frame = ttk.Frame(link_panel, style="App.TFrame")
+        url_frame.grid(row=1, column=0, sticky="ew", pady=(14, 10))
         url_frame.columnconfigure(0, weight=1)
         self.url_entry = ttk.Entry(url_frame)
         self.url_entry.grid(row=0, column=0, sticky="ew")
         self.url_entry.bind("<Return>", lambda _event: self._add_url())
-        ttk.Button(url_frame, text="Einfuegen", command=self._paste_url).grid(row=0, column=1, sticky="ew", padx=(10, 0))
-        ttk.Button(url_frame, text="Hinzufuegen", command=self._add_url).grid(row=0, column=2, sticky="ew", padx=(8, 0))
+        self._button(url_frame, "Einfuegen", self._paste_url).grid(row=0, column=1, sticky="ew", padx=(10, 0))
+        self._button(url_frame, "Hinzufuegen", self._add_url).grid(row=0, column=2, sticky="ew", padx=(8, 0))
 
-        queue_frame = ttk.Frame(url_frame, style="App.TFrame")
-        queue_frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        queue_frame = ttk.Frame(link_panel, style="App.TFrame")
+        queue_frame.grid(row=2, column=0, sticky="nsew")
         queue_frame.columnconfigure(0, weight=1)
         queue_frame.rowconfigure(0, weight=1)
 
-        self.url_listbox = self._create_listbox(queue_frame, height=4)
-        self.url_listbox.grid(row=0, column=0, rowspan=2, sticky="ew")
+        self.url_listbox = self._create_listbox(queue_frame, height=10)
+        self.url_listbox.grid(row=0, column=0, sticky="nsew")
         self.url_listbox.bind("<Delete>", lambda _event: self._remove_selected_urls())
         queue_scrollbar = ttk.Scrollbar(queue_frame, command=self.url_listbox.yview)
-        queue_scrollbar.grid(row=0, column=1, rowspan=2, sticky="ns")
+        queue_scrollbar.grid(row=0, column=1, sticky="ns")
         self.url_listbox.configure(yscrollcommand=queue_scrollbar.set)
+        self._sync_url_listbox()
 
-        queue_buttons = ttk.Frame(queue_frame, style="App.TFrame")
-        queue_buttons.grid(row=0, column=2, sticky="n", padx=(10, 0))
-        ttk.Button(queue_buttons, text="Entfernen", command=self._remove_selected_urls).grid(row=0, column=0, sticky="ew")
-        ttk.Button(queue_buttons, text="Leeren", command=self._clear_urls).grid(row=1, column=0, sticky="ew", pady=(6, 0))
-        ttk.Button(queue_buttons, text="Hoch", command=lambda: self._move_selected_url(-1)).grid(row=2, column=0, sticky="ew", pady=(6, 0))
-        ttk.Button(queue_buttons, text="Runter", command=lambda: self._move_selected_url(1)).grid(row=3, column=0, sticky="ew", pady=(6, 0))
-
-        primary_frame = ttk.Frame(root, style="App.TFrame")
-        primary_frame.grid(row=2, column=0, sticky="ew", pady=(0, 10))
-        primary_frame.columnconfigure(2, weight=1)
-        self.download_button = ttk.Button(
-            primary_frame,
-            text="Download starten",
-            command=self._start_download,
-            style="Primary.TButton",
+        self.primary_action_button = self._button(
+            self.footer_frame,
+            "Weiter",
+            self._show_options_step,
+            variant="primary",
         )
-        self.download_button.grid(row=0, column=0, sticky="w")
-        self.cancel_button = ttk.Button(primary_frame, text="Abbrechen", command=self._cancel_download, state="disabled")
-        self.cancel_button.grid(row=0, column=1, sticky="w", padx=(10, 0))
-        ttk.Label(primary_frame, textvariable=self.status_var, style="Muted.TLabel").grid(row=0, column=2, sticky="e")
+        self.primary_action_button.grid(row=0, column=0, sticky="e")
 
-        self.progress = ttk.Progressbar(root, variable=self.progress_var, maximum=100)
-        self.progress.grid(row=3, column=0, sticky="ew", pady=(0, 12))
+    def _show_options_step(self) -> None:
+        if self.url_entry.get().strip():
+            self._add_url()
+        if not self.queued_urls:
+            messagebox.showwarning(APP_TITLE, "Bitte mindestens einen Video-Link einfuegen.")
+            return
 
-        secondary = ttk.Notebook(root)
-        secondary.grid(row=4, column=0, sticky="nsew")
+        self._clear_content()
+        self.progress.grid_remove()
+        self.status_var.set(f"{len(self.queued_urls)} Link(s) bereit")
+        if self.content_frame is None or self.footer_frame is None:
+            return
 
-        settings_tab = ttk.Frame(secondary, padding=10, style="Surface.TFrame")
-        history_tab = ttk.Frame(secondary, padding=10, style="Surface.TFrame")
-        log_tab = ttk.Frame(secondary, padding=10, style="Surface.TFrame")
-        secondary.add(settings_tab, text="Einstellungen")
-        secondary.add(history_tab, text="Verlauf")
-        secondary.add(log_tab, text="Status")
-
-        settings_tab.columnconfigure(0, weight=1)
-        ttk.Button(
-            settings_tab,
-            textvariable=self.options_button_text,
-            command=self._toggle_options,
-        ).grid(row=0, column=0, sticky="w")
-
-        options = ttk.Frame(settings_tab, style="Surface.TFrame")
-        self.options_frame = options
-        options.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        options = ttk.Frame(self.content_frame, padding=16, style="Surface.TFrame")
+        options.grid(row=0, column=0, sticky="nsew")
         options.columnconfigure(1, weight=1)
 
-        ttk.Label(options, text="Qualitaet", style="Surface.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(options, text="Download einstellen", style="Surface.TLabel").grid(
+            row=0, column=0, columnspan=4, sticky="w", pady=(0, 14)
+        )
+
+        ttk.Label(options, text="Qualitaet", style="Surface.TLabel").grid(row=1, column=0, sticky="w")
         quality_box = ttk.Combobox(
             options,
             textvariable=self.quality_var,
@@ -303,9 +348,11 @@ class DownloaderApp(tk.Tk):
             state="readonly",
             width=22,
         )
-        quality_box.grid(row=0, column=1, sticky="w", padx=(10, 20))
+        quality_box.grid(row=1, column=1, sticky="ew", padx=(10, 0))
 
-        ttk.Label(options, text="Browser-Cookies", style="Surface.TLabel").grid(row=0, column=2, sticky="w")
+        ttk.Label(options, text="Browser-Cookies", style="Surface.TLabel").grid(
+            row=2, column=0, sticky="w", pady=(12, 0)
+        )
         cookies_box = ttk.Combobox(
             options,
             textvariable=self.cookies_var,
@@ -313,57 +360,51 @@ class DownloaderApp(tk.Tk):
             state="readonly",
             width=14,
         )
-        cookies_box.grid(row=0, column=3, sticky="w", padx=(10, 0))
+        cookies_box.grid(row=2, column=1, sticky="ew", padx=(10, 0), pady=(12, 0))
 
-        ttk.Label(options, text="Ordner", style="Surface.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 0))
-        ttk.Entry(options, textvariable=self.folder_var).grid(row=1, column=1, sticky="ew", padx=(10, 10), pady=(10, 0))
-        ttk.Button(options, text="Waehlen", command=self._choose_folder).grid(row=1, column=2, pady=(10, 0))
-        ttk.Button(options, text="Oeffnen", command=self._open_folder).grid(row=1, column=3, padx=(8, 0), pady=(10, 0))
+        ttk.Label(options, text="Ordner", style="Surface.TLabel").grid(row=3, column=0, sticky="w", pady=(12, 0))
+        ttk.Entry(options, textvariable=self.folder_var).grid(
+            row=3, column=1, sticky="ew", padx=(10, 10), pady=(12, 0)
+        )
+        self._button(options, "Waehlen", self._choose_folder).grid(row=3, column=2, pady=(12, 0))
+        self._button(options, "Oeffnen", self._open_folder).grid(row=3, column=3, padx=(8, 0), pady=(12, 0))
         ttk.Checkbutton(
             options,
             text="Playlist komplett herunterladen",
             variable=self.playlist_var,
             style="Surface.TCheckbutton",
-        ).grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(10, 0))
+        ).grid(row=4, column=1, sticky="w", padx=(10, 0), pady=(14, 0))
         ttk.Checkbutton(
             options,
             text="Bereits heruntergeladene Videos ueberspringen",
             variable=self.archive_var,
             command=self._save_archive_setting,
             style="Surface.TCheckbutton",
-        ).grid(row=2, column=2, columnspan=2, sticky="w", pady=(10, 0))
-        self._toggle_options(force=False)
+        ).grid(row=5, column=1, columnspan=3, sticky="w", padx=(10, 0), pady=(10, 0))
 
-        history_frame = ttk.Frame(history_tab, style="Surface.TFrame")
-        history_frame.grid(row=0, column=0, sticky="nsew")
-        history_frame.columnconfigure(0, weight=1)
-        history_frame.rowconfigure(0, weight=1)
-        history_tab.columnconfigure(0, weight=1)
-        history_tab.rowconfigure(0, weight=1)
+        self._button(self.footer_frame, "Zurueck", self._show_links_step).grid(row=0, column=0, sticky="e", padx=(0, 8))
+        self.primary_action_button = self._button(
+            self.footer_frame,
+            "OK",
+            self._start_download,
+            variant="primary",
+        )
+        self.primary_action_button.grid(row=0, column=1, sticky="e")
 
-        self.history_listbox = self._create_listbox(history_frame, height=4)
-        self.history_listbox.grid(row=0, column=0, sticky="nsew")
-        self.history_listbox.bind("<Double-Button-1>", lambda _event: self._add_selected_history_urls())
-        history_scrollbar = ttk.Scrollbar(history_frame, command=self.history_listbox.yview)
-        history_scrollbar.grid(row=0, column=1, sticky="ns")
-        self.history_listbox.configure(yscrollcommand=history_scrollbar.set)
+    def _show_log_step(self) -> None:
+        self._clear_content()
+        self.progress.grid()
+        if self.content_frame is None or self.footer_frame is None:
+            return
 
-        history_buttons = ttk.Frame(history_frame, style="Surface.TFrame")
-        history_buttons.grid(row=0, column=2, sticky="n", padx=(10, 0))
-        ttk.Button(history_buttons, text="Erneut hinzufuegen", command=self._add_selected_history_urls).grid(row=0, column=0, sticky="ew")
-        ttk.Button(history_buttons, text="Aktualisieren", command=self._refresh_history).grid(row=1, column=0, sticky="ew", pady=(6, 0))
-        ttk.Button(history_buttons, text="Verlauf loeschen", command=self._clear_history).grid(row=2, column=0, sticky="ew", pady=(6, 0))
-
-        log_frame = ttk.Frame(log_tab, style="Surface.TFrame")
+        log_frame = ttk.Frame(self.content_frame, style="App.TFrame")
         log_frame.grid(row=0, column=0, sticky="nsew")
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        log_tab.columnconfigure(0, weight=1)
-        log_tab.rowconfigure(0, weight=1)
 
         self.log_text = tk.Text(
             log_frame,
-            height=10,
+            height=16,
             wrap="word",
             state="disabled",
             background=SURFACE_COLOR,
@@ -380,8 +421,12 @@ class DownloaderApp(tk.Tk):
         scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.log_text.configure(yscrollcommand=scrollbar.set)
-        ttk.Button(log_tab, text="Log leeren", command=self._clear_log).grid(row=1, column=0, sticky="w", pady=(8, 0))
-        self._refresh_history()
+        for message in self.pending_log_messages:
+            self._write_log(message)
+        self.pending_log_messages.clear()
+
+        self.cancel_button = self._button(self.footer_frame, "Abbrechen", self._cancel_download, variant="danger")
+        self.cancel_button.grid(row=0, column=0, sticky="e")
 
     def _create_listbox(self, parent: tk.Misc, height: int) -> tk.Listbox:
         return tk.Listbox(
@@ -399,16 +444,6 @@ class DownloaderApp(tk.Tk):
             relief="flat",
             borderwidth=0,
         )
-
-    def _toggle_options(self, force: bool | None = None) -> None:
-        visible = not self.options_visible.get() if force is None else force
-        self.options_visible.set(visible)
-        if visible:
-            self.options_frame.grid()
-            self.options_button_text.set("Optionen ausblenden")
-        else:
-            self.options_frame.grid_remove()
-            self.options_button_text.set("Optionen anzeigen")
 
     def _paste_url(self) -> None:
         try:
@@ -432,14 +467,15 @@ class DownloaderApp(tk.Tk):
         if not urls:
             self._log(no_urls_found_message())
             return
-        existing = set(self._read_urls())
+        existing = set(self.queued_urls)
         added = 0
         for url in urls:
             if url in existing:
                 continue
-            self.url_listbox.insert("end", url)
+            self.queued_urls.append(url)
             existing.add(url)
             added += 1
+        self._sync_url_listbox()
         if added:
             label = "Link" if added == 1 else "Links"
             self._log(f"{added} {label} zur Warteschlange hinzugefuegt.")
@@ -447,32 +483,45 @@ class DownloaderApp(tk.Tk):
             self._log("Keine neuen Links hinzugefuegt.")
 
     def _remove_selected_urls(self) -> None:
+        if self.url_listbox is None:
+            return
         selected = list(self.url_listbox.curselection())
         if not selected:
             return
         for index in reversed(selected):
-            self.url_listbox.delete(index)
+            del self.queued_urls[index]
+        self._sync_url_listbox()
         self._log(f"{len(selected)} Link(s) aus der Warteschlange entfernt.")
 
-    def _clear_urls(self) -> None:
-        if self.url_listbox.size() == 0:
+    def _sync_url_listbox(self) -> None:
+        if self.url_listbox is None:
             return
         self.url_listbox.delete(0, "end")
-        self._log("Warteschlange geleert.")
+        for url in self.queued_urls:
+            self.url_listbox.insert("end", url)
 
-    def _move_selected_url(self, direction: int) -> None:
-        selected = self.url_listbox.curselection()
-        if len(selected) != 1:
+    def _reset_for_new_download(self) -> None:
+        if self.download_thread and self.download_thread.is_alive():
             return
-        index = selected[0]
-        new_index = index + direction
-        if new_index < 0 or new_index >= self.url_listbox.size():
-            return
-        url = self.url_listbox.get(index)
-        self.url_listbox.delete(index)
-        self.url_listbox.insert(new_index, url)
-        self.url_listbox.selection_set(new_index)
-        self.url_listbox.activate(new_index)
+        self.queued_urls.clear()
+        self.progress_var.set(0)
+        self.pending_log_messages.clear()
+        self.log_text = None
+        self._show_links_step()
+
+    def _finish_download_controls(self) -> None:
+        if self.cancel_button is not None:
+            self.cancel_button.configure(state="disabled")
+        if self.footer_frame is not None:
+            self._button(self.footer_frame, "Neuer Download", self._reset_for_new_download, variant="primary").grid(
+                row=0, column=1, sticky="e", padx=(8, 0)
+            )
+
+    def _read_urls(self) -> list[str]:
+        return [url.strip() for url in self.queued_urls if url.strip()]
+
+    def _refresh_history(self) -> None:
+        self.history_entries = load_history()
 
     def _choose_folder(self) -> None:
         folder = filedialog.askdirectory(initialdir=self.folder_var.get() or str(Path.home()))
@@ -501,16 +550,14 @@ class DownloaderApp(tk.Tk):
         except Exception as exc:  # noqa: BLE001 - OS integration boundary
             messagebox.showerror(APP_TITLE, f"Ordner kann nicht geoeffnet werden:\n{exc}")
 
-    def _clear_log(self) -> None:
-        self.log_text.configure(state="normal")
-        self.log_text.delete("1.0", "end")
-        self.log_text.configure(state="disabled")
-
     def _start_download(self) -> None:
         if self.download_thread and self.download_thread.is_alive():
             return
 
-        pending_text = self.url_entry.get().strip()
+        try:
+            pending_text = self.url_entry.get().strip() if self.url_entry.winfo_exists() else ""
+        except tk.TclError:
+            pending_text = ""
         if pending_text:
             self._add_urls_from_text(pending_text)
             self.url_entry.delete(0, "end")
@@ -542,8 +589,8 @@ class DownloaderApp(tk.Tk):
         self.cancel_requested.clear()
         self.progress_var.set(0)
         self.status_var.set("Download laeuft...")
-        self.download_button.configure(state="disabled")
-        self.cancel_button.configure(state="normal")
+        self.pending_log_messages.clear()
+        self._show_log_step()
         if len(urls) == 1:
             self._log(f"Starte Download: {urls[0]}")
         else:
@@ -564,41 +611,10 @@ class DownloaderApp(tk.Tk):
         if self.cancel_requested.is_set():
             return
         self.cancel_requested.set()
-        self.cancel_button.configure(state="disabled")
+        if self.cancel_button is not None:
+            self.cancel_button.configure(state="disabled")
         self.status_var.set("Abbruch wird vorbereitet...")
         self._log("Abbruch angefordert. Der aktuelle Download wird gestoppt.")
-
-    def _read_urls(self) -> list[str]:
-        return [str(self.url_listbox.get(index)).strip() for index in range(self.url_listbox.size())]
-
-    def _refresh_history(self) -> None:
-        self.history_entries = load_history()
-        self.history_listbox.delete(0, "end")
-        for entry in self.history_entries[:20]:
-            title = entry.get("title") or "Video"
-            quality = entry.get("quality") or "?"
-            downloaded_at = str(entry.get("downloaded_at") or "")
-            shown_time = format_history_timestamp(downloaded_at) if downloaded_at else "?"
-            self.history_listbox.insert("end", f"{shown_time} | {quality} | {title}")
-
-    def _add_selected_history_urls(self) -> None:
-        selected = self.history_listbox.curselection()
-        if not selected:
-            return
-        urls = []
-        for index in selected:
-            if index < len(self.history_entries):
-                url = self.history_entries[index].get("url")
-                if url:
-                    urls.append(str(url))
-        self._add_urls_from_text("\n".join(urls))
-
-    def _clear_history(self) -> None:
-        if not messagebox.askyesno(APP_TITLE, "Download-Verlauf wirklich loeschen?"):
-            return
-        clear_history()
-        self._refresh_history()
-        self._log(f"Download-Verlauf geloescht: {history_path()}")
 
     def _download_worker(
         self,
@@ -691,18 +707,15 @@ class DownloaderApp(tk.Tk):
             elif message_type == "done":
                 self._log(str(payload))
                 self.status_var.set("Fertig")
-                self.download_button.configure(state="normal")
-                self.cancel_button.configure(state="disabled")
+                self._finish_download_controls()
             elif message_type == "cancelled":
                 self._log(str(payload))
                 self.status_var.set("Abgebrochen")
-                self.download_button.configure(state="normal")
-                self.cancel_button.configure(state="disabled")
+                self._finish_download_controls()
             elif message_type == "batch_error":
                 self._log(f"Fehler: {payload}")
                 self.status_var.set("Fertig mit Fehlern")
-                self.download_button.configure(state="normal")
-                self.cancel_button.configure(state="disabled")
+                self._finish_download_controls()
                 messagebox.showerror(APP_TITLE, str(payload))
             elif message_type == "error":
                 self._set_idle_error(str(payload))
@@ -712,11 +725,18 @@ class DownloaderApp(tk.Tk):
     def _set_idle_error(self, message: str) -> None:
         self._log(f"Fehler: {message}")
         self.status_var.set("Fehler")
-        self.download_button.configure(state="normal")
-        self.cancel_button.configure(state="disabled")
+        if self.cancel_button is not None:
+            self.cancel_button.configure(state="disabled")
         messagebox.showerror(APP_TITLE, message)
 
     def _log(self, message: str) -> None:
+        if self.log_text is None:
+            self.pending_log_messages.append(message)
+            self.status_var.set(message)
+            return
+        self._write_log(message)
+
+    def _write_log(self, message: str) -> None:
         self.log_text.configure(state="normal")
         self.log_text.insert("end", f"{message}\n")
         self.log_text.see("end")
