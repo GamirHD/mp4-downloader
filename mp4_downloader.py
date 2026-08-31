@@ -120,7 +120,7 @@ class DownloaderApp(tk.Tk):
         self.after(100, self._poll_messages)
 
         if yt_dlp is None:
-            self._set_idle_error("yt-dlp ist nicht installiert. Bitte `pip install -r requirements.txt` ausfuehren.")
+            self._set_idle_error("yt-dlp ist nicht installiert. Bitte `pip install -r requirements.txt` ausführen.")
 
     def _configure_tk_scaling(self) -> None:
         try:
@@ -278,7 +278,7 @@ class DownloaderApp(tk.Tk):
     def _show_links_step(self) -> None:
         self._clear_content()
         self.progress.grid_remove()
-        self.status_var.set("Links einfuegen")
+        self.status_var.set("Links einfügen")
         if self.content_frame is None or self.footer_frame is None:
             return
 
@@ -295,8 +295,7 @@ class DownloaderApp(tk.Tk):
         self.url_entry = ttk.Entry(url_frame)
         self.url_entry.grid(row=0, column=0, sticky="ew")
         self.url_entry.bind("<Return>", lambda _event: self._add_url())
-        self._button(url_frame, "Einfuegen", self._paste_url).grid(row=0, column=1, sticky="ew", padx=(10, 0))
-        self._button(url_frame, "Hinzufuegen", self._add_url).grid(row=0, column=2, sticky="ew", padx=(8, 0))
+        self._button(url_frame, "Hinzufügen", self._add_url).grid(row=0, column=1, sticky="ew", padx=(10, 0))
 
         queue_frame = ttk.Frame(link_panel, style="App.TFrame")
         queue_frame.grid(row=2, column=0, sticky="nsew")
@@ -323,12 +322,13 @@ class DownloaderApp(tk.Tk):
         if self.url_entry.get().strip():
             self._add_url()
         if not self.queued_urls:
-            messagebox.showwarning(APP_TITLE, "Bitte mindestens einen Video-Link einfuegen.")
+            messagebox.showwarning(APP_TITLE, "Bitte mindestens einen Video-Link einfügen.")
             return
 
         self._clear_content()
         self.progress.grid_remove()
-        self.status_var.set(f"{len(self.queued_urls)} Link(s) bereit")
+        link_count = len(self.queued_urls)
+        self.status_var.set("1 Link bereit" if link_count == 1 else f"{link_count} Links bereit")
         if self.content_frame is None or self.footer_frame is None:
             return
 
@@ -340,7 +340,7 @@ class DownloaderApp(tk.Tk):
             row=0, column=0, columnspan=4, sticky="w", pady=(0, 14)
         )
 
-        ttk.Label(options, text="Qualitaet", style="Surface.TLabel").grid(row=1, column=0, sticky="w")
+        ttk.Label(options, text="Qualität", style="Surface.TLabel").grid(row=1, column=0, sticky="w")
         quality_box = ttk.Combobox(
             options,
             textvariable=self.quality_var,
@@ -366,8 +366,8 @@ class DownloaderApp(tk.Tk):
         ttk.Entry(options, textvariable=self.folder_var).grid(
             row=3, column=1, sticky="ew", padx=(10, 10), pady=(12, 0)
         )
-        self._button(options, "Waehlen", self._choose_folder).grid(row=3, column=2, pady=(12, 0))
-        self._button(options, "Oeffnen", self._open_folder).grid(row=3, column=3, padx=(8, 0), pady=(12, 0))
+        self._button(options, "Wählen", self._choose_folder).grid(row=3, column=2, pady=(12, 0))
+        self._button(options, "Öffnen", self._open_folder).grid(row=3, column=3, padx=(8, 0), pady=(12, 0))
         ttk.Checkbutton(
             options,
             text="Playlist komplett herunterladen",
@@ -376,13 +376,13 @@ class DownloaderApp(tk.Tk):
         ).grid(row=4, column=1, sticky="w", padx=(10, 0), pady=(14, 0))
         ttk.Checkbutton(
             options,
-            text="Bereits heruntergeladene Videos ueberspringen",
+            text="Bereits heruntergeladene Videos überspringen",
             variable=self.archive_var,
             command=self._save_archive_setting,
             style="Surface.TCheckbutton",
         ).grid(row=5, column=1, columnspan=3, sticky="w", padx=(10, 0), pady=(10, 0))
 
-        self._button(self.footer_frame, "Zurueck", self._show_links_step).grid(row=0, column=0, sticky="e", padx=(0, 8))
+        self._button(self.footer_frame, "Zurück", self._show_links_step).grid(row=0, column=0, sticky="e", padx=(0, 8))
         self.primary_action_button = self._button(
             self.footer_frame,
             "OK",
@@ -478,9 +478,9 @@ class DownloaderApp(tk.Tk):
         self._sync_url_listbox()
         if added:
             label = "Link" if added == 1 else "Links"
-            self._log(f"{added} {label} zur Warteschlange hinzugefuegt.")
+            self._log(f"{added} {label} zur Warteschlange hinzugefügt.")
         else:
-            self._log("Keine neuen Links hinzugefuegt.")
+            self._log("Keine neuen Links hinzugefügt.")
 
     def _remove_selected_urls(self) -> None:
         if self.url_listbox is None:
@@ -548,7 +548,7 @@ class DownloaderApp(tk.Tk):
             else:
                 subprocess.Popen(["xdg-open", str(folder)])
         except Exception as exc:  # noqa: BLE001 - OS integration boundary
-            messagebox.showerror(APP_TITLE, f"Ordner kann nicht geoeffnet werden:\n{exc}")
+            messagebox.showerror(APP_TITLE, f"Ordner kann nicht geöffnet werden:\n{exc}")
 
     def _start_download(self) -> None:
         if self.download_thread and self.download_thread.is_alive():
@@ -575,7 +575,7 @@ class DownloaderApp(tk.Tk):
             messagebox.showerror(APP_TITLE, "yt-dlp ist nicht installiert.")
             return
         if not urls:
-            messagebox.showwarning(APP_TITLE, "Bitte mindestens einen Video-Link einfuegen.")
+            messagebox.showwarning(APP_TITLE, "Bitte mindestens einen Video-Link einfügen.")
             return
         try:
             folder.mkdir(parents=True, exist_ok=True)
@@ -588,7 +588,7 @@ class DownloaderApp(tk.Tk):
         save_settings(self.settings)
         self.cancel_requested.clear()
         self.progress_var.set(0)
-        self.status_var.set("Download laeuft...")
+        self.status_var.set("Download läuft...")
         self.pending_log_messages.clear()
         self._show_log_step()
         if len(urls) == 1:
@@ -639,7 +639,7 @@ class DownloaderApp(tk.Tk):
                     self.messages.put(("progress", min(downloaded / total * 100, 100)))
                 speed = data.get("_speed_str", "").strip()
                 eta = data.get("_eta_str", "").strip()
-                self.messages.put(("status", f"Laedt herunter... {speed} ETA {eta}".strip()))
+                self.messages.put(("status", f"Lädt herunter... {speed} ETA {eta}".strip()))
             elif status == "finished":
                 self.messages.put(("progress", 100))
                 self.messages.put(("status", "Verarbeite Datei..."))
@@ -664,7 +664,7 @@ class DownloaderApp(tk.Tk):
                 return
             if len(urls) > 1:
                 self.messages.put(("log", f"[{index}/{len(urls)}] {url}"))
-                self.messages.put(("status", f"Download {index} von {len(urls)} laeuft..."))
+                self.messages.put(("status", f"Download {index} von {len(urls)} läuft..."))
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as downloader:
                     info = downloader.extract_info(url, download=True)

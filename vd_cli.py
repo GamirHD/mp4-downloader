@@ -17,9 +17,9 @@ except ImportError:  # pragma: no cover - handled at runtime
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.8.23"
+__version__ = "0.8.24"
 QUALITY_OPTIONS = {
-    "best": ("Beste Qualitaet", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
+    "best": ("Beste Qualität", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
     "720p": ("720p", "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/best[height<=720]", "mp4"),
     "480p": ("480p", "bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/best[height<=480]", "mp4"),
@@ -128,7 +128,7 @@ def normalize_url_args(values: list[str]) -> list[str]:
 
 
 def no_urls_found_message() -> str:
-    return "Kein unterstuetzter Link erkannt. Bitte eine URL mit http:// oder https:// einfuegen."
+    return "Kein unterstützter Link erkannt. Bitte eine URL mit http:// oder https:// einfügen."
 
 
 def _coerce_bool(value: Any, default: bool) -> bool:
