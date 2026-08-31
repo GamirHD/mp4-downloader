@@ -53,6 +53,20 @@ GUI_QUALITY_CHOICES = [f"{key} - {GUI_QUALITY_LABELS[key]}" for key in GUI_QUALI
 BROWSER_COOKIE_CHOICES = ["Keine"] + list(BROWSER_CHOICES)
 
 
+def enable_high_dpi_rendering() -> None:
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except (AttributeError, OSError):
+            ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
 class DownloadCancelled(RuntimeError):
     pass
 
@@ -79,6 +93,7 @@ class QueueLogger:
 class DownloaderApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
+        self._configure_tk_scaling()
         self.title(APP_TITLE)
         self.geometry("720x560")
         self.minsize(640, 500)
@@ -103,6 +118,14 @@ class DownloaderApp(tk.Tk):
 
         if yt_dlp is None:
             self._set_idle_error("yt-dlp ist nicht installiert. Bitte `pip install -r requirements.txt` ausfuehren.")
+
+    def _configure_tk_scaling(self) -> None:
+        try:
+            pixels_per_inch = float(self.winfo_fpixels("1i"))
+        except tk.TclError:
+            return
+        if pixels_per_inch > 0:
+            self.tk.call("tk", "scaling", max(1.0, pixels_per_inch / 72.0))
 
     def _configure_style(self) -> None:
         self.configure(bg=BG_COLOR)
@@ -701,6 +724,7 @@ class DownloaderApp(tk.Tk):
 
 
 def main() -> None:
+    enable_high_dpi_rendering()
     app = DownloaderApp()
     app.mainloop()
 
