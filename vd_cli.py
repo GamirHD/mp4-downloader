@@ -15,9 +15,11 @@ try:
 except ImportError:  # pragma: no cover - handled at runtime
     yt_dlp = None
 
+from page_extractor import EmbeddedMedia, find_embedded_media, referer_headers
+
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.8.26"
+__version__ = "0.9.0"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualität", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("Bis 1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
@@ -25,6 +27,7 @@ QUALITY_OPTIONS = {
     "480p": ("Bis 480p", "bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/best[height<=480]", "mp4"),
     "mp3": ("Nur Audio (MP3)", "bestaudio/best", "mp3"),
 }
+EMBED_FALLBACK_ERROR_HINTS = ("unsupported url", "no video formats", "unable to extract", "no suitable")
 BROWSER_CHOICES = ("brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi")
 MAX_HISTORY_ENTRIES = 100
 TRAILING_URL_PUNCTUATION = ".,;:!?"
@@ -146,7 +149,7 @@ def _coerce_bool(value: Any, default: bool) -> bool:
 
 
 def load_settings() -> dict[str, Any]:
-    defaults = {"download_dir": str(default_download_dir()), "use_download_archive": False}
+    defaults = {"download_dir": str(default_download_dir()), "use_download_archive": False, "cookies_from_browser": None}
     path = config_path()
     if not path.exists():
         return defaults
@@ -159,12 +162,16 @@ def load_settings() -> dict[str, Any]:
     download_dir = data.get("download_dir")
     if not isinstance(download_dir, str) or not download_dir.strip():
         download_dir = defaults["download_dir"]
+    cookies_from_browser = data.get("cookies_from_browser")
+    if cookies_from_browser not in BROWSER_CHOICES:
+        cookies_from_browser = None
     return {
         "download_dir": download_dir,
         "use_download_archive": _coerce_bool(
             data.get("use_download_archive", defaults["use_download_archive"]),
             defaults["use_download_archive"],
         ),
+        "cookies_from_browser": cookies_from_browser,
     }
 
 
@@ -247,6 +254,10 @@ def format_history_timestamp(value: str) -> str:
 def friendly_error(raw_error: str) -> str:
     text = raw_error.strip()
     lower = text.lower()
+    if "kein eingebettetes video" in lower:
+        return text
+    if "drm" in lower:
+        return "Dieses Video ist kopiergeschuetzt (DRM) und kann nicht heruntergeladen werden."
     if "sign in to confirm" in lower or "bot" in lower or "cookies" in lower:
         return (
             "YouTube blockiert diesen Link oder verlangt eine Browser-Session. "
@@ -265,6 +276,8 @@ def build_ydl_options(
     *,
     allow_playlist: bool = False,
     cookies_from_browser: str | None = None,
+    cookie_file: str | None = None,
+    referer: str | None = None,
     use_download_archive: bool = False,
     progress_hooks: list[Any] | None = None,
     logger: Any | None = None,
@@ -293,6 +306,10 @@ def build_ydl_options(
         options["ffmpeg_location"] = os.path.dirname(ffmpeg_path)
     if cookies_from_browser:
         options["cookiesfrombrowser"] = (cookies_from_browser,)
+    if cookie_file:
+        options["cookiefile"] = str(Path(cookie_file).expanduser())
+    if referer:
+        options["http_headers"] = referer_headers(referer)
     if use_download_archive:
         archive_path = download_archive_path()
         archive_path.parent.mkdir(parents=True, exist_ok=True)
@@ -453,6 +470,79 @@ def choose_directory(current_folder: Path) -> Path | None:
     return Path(entered).expanduser()
 
 
+def should_try_embedded_media(error_text: str) -> bool:
+    lower = error_text.lower()
+    if "drm" in lower:
+        return False
+    return any(hint in lower for hint in EMBED_FALLBACK_ERROR_HINTS)
+
+
+def embedded_media_options(base_options: dict[str, Any], media: EmbeddedMedia) -> dict[str, Any]:
+    """Same options, but send the page as Referer and name the file after the page."""
+    options = dict(base_options)
+    headers = dict(options.get("http_headers") or {})
+    headers.update(media.referer_headers)
+    options["http_headers"] = headers
+    options["noplaylist"] = True
+    if media.title:
+        from yt_dlp.utils import sanitize_filename
+
+        outtmpl = base_options["outtmpl"]
+        if isinstance(outtmpl, dict):
+            outtmpl = outtmpl.get("default", "")
+        folder = Path(str(outtmpl)).parent
+        safe_title = sanitize_filename(media.title)[:200].replace("%", "%%") or "Video"
+        options["outtmpl"] = str(folder / f"{safe_title}.%(ext)s")
+    return options
+
+
+def download_url(
+    url: str,
+    options: dict[str, Any],
+    *,
+    log: Any = print,
+    search_embedded: bool = True,
+) -> dict[str, Any] | None:
+    """Download ``url``; for unknown pages look for an embedded video stream."""
+    if yt_dlp is None:
+        raise RuntimeError("yt-dlp ist nicht installiert. Fuehre zuerst `python -m pip install .` aus.")
+
+    # yt-dlp rewrites the options dict it gets, so keep the original untouched.
+    with yt_dlp.YoutubeDL(dict(options)) as downloader:
+        try:
+            return downloader.extract_info(url, download=True)
+        except yt_dlp.utils.DownloadError as exc:
+            if not search_embedded or not should_try_embedded_media(str(exc)):
+                raise
+            log("Diese Seite wird nicht direkt unterstuetzt. Suche nach einem eingebetteten Video...")
+            media = find_embedded_media(downloader, url, log=log)
+
+    if media is None or not media.media_urls:
+        raise RuntimeError(
+            "Kein eingebettetes Video auf der Seite gefunden. Falls die Seite einen Login braucht, "
+            "waehle deinen Browser fuer den Login aus (CLI: --cookies-from-browser) "
+            "oder kopiere die .m3u8-Adresse aus den Entwicklertools (F12 > Netzwerk)."
+        )
+
+    media_options = embedded_media_options(options, media)
+    last_error: Exception | None = None
+    for candidate in media.media_urls:
+        log(f"Lade eingebettetes Video: {candidate.split('?', 1)[0]}")
+        try:
+            with yt_dlp.YoutubeDL(dict(media_options)) as downloader:
+                info = downloader.extract_info(candidate, download=True)
+        except yt_dlp.utils.DownloadError as exc:
+            last_error = exc
+            if "drm" in str(exc).lower():
+                break
+            continue
+        if isinstance(info, dict) and media.title:
+            info["title"] = media.title
+        return info
+    assert last_error is not None
+    raise last_error
+
+
 def download(
     url: str,
     quality_key: str,
@@ -460,6 +550,8 @@ def download(
     *,
     allow_playlist: bool = False,
     cookies_from_browser: str | None = None,
+    cookie_file: str | None = None,
+    referer: str | None = None,
     use_download_archive: bool = False,
 ) -> dict[str, Any] | None:
     if yt_dlp is None:
@@ -471,10 +563,11 @@ def download(
         folder,
         allow_playlist=allow_playlist,
         cookies_from_browser=cookies_from_browser,
+        cookie_file=cookie_file,
+        referer=referer,
         use_download_archive=use_download_archive,
     )
-    with yt_dlp.YoutubeDL(options) as downloader:
-        return downloader.extract_info(url, download=True)
+    return download_url(url, options)
 
 
 def history_command(args: argparse.Namespace) -> int:
@@ -600,7 +693,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--cookies-from-browser",
         choices=BROWSER_CHOICES,
-        help="Cookies aus einem lokalen Browser verwenden, z. B. bei YouTube-Login-Blockaden",
+        help="Login/Cookies aus einem lokalen Browser verwenden, z. B. fuer Kursseiten oder YouTube-Blockaden",
+    )
+    parser.add_argument(
+        "--cookies",
+        metavar="DATEI",
+        help="Cookies aus einer cookies.txt-Datei (Netscape-Format) verwenden",
+    )
+    parser.add_argument(
+        "--referer",
+        metavar="URL",
+        help="Seite, auf der das Video eingebettet ist (fuer direkt kopierte .m3u8-Links)",
     )
     archive_group = parser.add_mutually_exclusive_group()
     archive_group.add_argument(
@@ -656,10 +759,14 @@ def main(argv: list[str] | None = None) -> int:
     folder = Path(args.folder or settings["download_dir"]).expanduser()
     quality_key = args.quality or choose_quality()
 
+    cookies_from_browser = args.cookies_from_browser or settings.get("cookies_from_browser")
+
     print(f"Zielordner: {folder}")
     print(f"Qualitaet: {QUALITY_OPTIONS[quality_key][0]}")
-    if args.cookies_from_browser:
-        print(f"Cookies: {args.cookies_from_browser}")
+    if cookies_from_browser:
+        print(f"Cookies: {cookies_from_browser}")
+    if args.cookies:
+        print(f"Cookie-Datei: {args.cookies}")
     if args.playlist:
         print("Playlist-Modus: aktiviert")
     use_download_archive = bool(settings.get("use_download_archive")) if args.archive is None else args.archive
@@ -679,7 +786,9 @@ def main(argv: list[str] | None = None) -> int:
                 quality_key,
                 folder,
                 allow_playlist=args.playlist,
-                cookies_from_browser=args.cookies_from_browser,
+                cookies_from_browser=cookies_from_browser,
+                cookie_file=args.cookies,
+                referer=args.referer,
                 use_download_archive=use_download_archive,
             )
             title = info.get("title", "Video") if isinstance(info, dict) else "Video"

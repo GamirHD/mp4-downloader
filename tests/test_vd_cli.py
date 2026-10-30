@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
+import page_extractor
 import vd_cli
 
 
@@ -29,7 +30,7 @@ class VdCliSharedStateTests(unittest.TestCase):
 
         self.assertEqual(
             vd_cli.load_settings(),
-            {"download_dir": str(folder), "use_download_archive": True},
+            {"download_dir": str(folder), "use_download_archive": True, "cookies_from_browser": None},
         )
 
     def test_settings_ignore_non_string_download_dir(self) -> None:
@@ -271,6 +272,174 @@ class VdCliOptionsTests(unittest.TestCase):
                 self.assertEqual(vd_cli.main(["https://example.test/1", "--no-archive"]), 0)
 
         self.assertFalse(download_mock.call_args.kwargs["use_download_archive"])
+
+
+    def test_saved_browser_login_is_kept_and_invalid_values_are_ignored(self) -> None:
+        folder = str(Path(self.temp_dir.name))
+        vd_cli.save_settings({"download_dir": folder, "cookies_from_browser": "firefox"})
+        self.assertEqual(vd_cli.load_settings()["cookies_from_browser"], "firefox")
+
+        vd_cli.save_settings({"download_dir": folder, "cookies_from_browser": "netscape"})
+        self.assertIsNone(vd_cli.load_settings()["cookies_from_browser"])
+
+    def test_cookie_file_and_referer_options(self) -> None:
+        options = vd_cli.build_ydl_options(
+            "best",
+            Path(self.temp_dir.name),
+            cookie_file="cookies.txt",
+            referer="https://ga.gg/premium-kurse/kurs/",
+        )
+
+        self.assertTrue(options["cookiefile"].endswith("cookies.txt"))
+        self.assertEqual(options["http_headers"]["Referer"], "https://ga.gg/premium-kurse/kurs/")
+        self.assertEqual(options["http_headers"]["Origin"], "https://ga.gg")
+
+    def test_only_unsupported_pages_trigger_embedded_search(self) -> None:
+        self.assertTrue(vd_cli.should_try_embedded_media("ERROR: Unsupported URL: https://ga.gg/x"))
+        self.assertFalse(vd_cli.should_try_embedded_media("ERROR: This video is DRM protected"))
+        self.assertFalse(vd_cli.should_try_embedded_media("ERROR: HTTP Error 404"))
+
+    def test_embedded_media_options_use_page_title_and_referer(self) -> None:
+        base = vd_cli.build_ydl_options("best", Path(self.temp_dir.name))
+        media = vd_cli.EmbeddedMedia(
+            page_url="https://ga.gg/premium-kurse/a/b/",
+            title="Xioh Midlane Masterclass 100%",
+            media_urls=["https://cdn.example/master.m3u8"],
+        )
+
+        options = vd_cli.embedded_media_options(base, media)
+
+        self.assertEqual(options["http_headers"]["Referer"], "https://ga.gg/premium-kurse/a/b/")
+        self.assertEqual(
+            Path(options["outtmpl"]).name, "Xioh Midlane Masterclass 100%%.%(ext)s"
+        )
+        self.assertNotIn("http_headers", base)
+
+    def test_embedded_media_options_accept_outtmpl_rewritten_by_yt_dlp(self) -> None:
+        base = vd_cli.build_ydl_options("best", Path(self.temp_dir.name))
+        base["outtmpl"] = {"default": base["outtmpl"]}
+        media = vd_cli.EmbeddedMedia(page_url="https://ga.gg/a/", title="Kurs", media_urls=["https://c/m.m3u8"])
+
+        options = vd_cli.embedded_media_options(base, media)
+
+        self.assertEqual(Path(options["outtmpl"]), Path(self.temp_dir.name) / "Kurs.%(ext)s")
+
+
+class PageExtractorTests(unittest.TestCase):
+    PAGE = "https://ga.gg/premium-kurse/kurs/video/"
+
+    def test_finds_master_playlist_before_variants_and_skips_segments(self) -> None:
+        html = """
+        <html><head><meta property="og:title" content="Xioh Midlane Masterclass"></head>
+        <script>var cfg = {"hls":"https:\\/\\/cdn.example.com\\/v\\/abc\\/720p.m3u8?token=1\\u00262",
+        "master":"https://cdn.example.com/v/abc/master.m3u8?token=1&amp;x=2"};</script>
+        <a href="https://cdn.example.com/v/abc/seg-20-v1-a1.ts">x</a>
+        </html>
+        """
+        urls = page_extractor.find_media_in_html(html, self.PAGE)
+
+        self.assertEqual(urls[0], "https://cdn.example.com/v/abc/master.m3u8?token=1&x=2")
+        self.assertIn("https://cdn.example.com/v/abc/720p.m3u8?token=1&2", urls)
+        self.assertEqual(page_extractor.extract_page_title(html), "Xioh Midlane Masterclass")
+
+    def test_finds_known_player_iframes_and_relative_video_sources(self) -> None:
+        html = """
+        <iframe src="//player.vimeo.com/video/123?h=abc"></iframe>
+        <iframe src="https://ads.example.com/banner"></iframe>
+        <video><source src="/media/intro.mp4"></video>
+        """
+        urls = page_extractor.find_media_in_html(html, self.PAGE)
+
+        self.assertEqual(
+            urls,
+            ["https://ga.gg/media/intro.mp4", "https://player.vimeo.com/video/123?h=abc"],
+        )
+
+    def test_title_drops_site_name_suffix(self) -> None:
+        self.assertEqual(page_extractor.clean_title("Xioh Midlane Masterclass | GA.GG"), "Xioh Midlane Masterclass")
+        self.assertEqual(page_extractor.clean_title("Nur ein Titel"), "Nur ein Titel")
+
+    def test_segment_files_are_not_media_candidates(self) -> None:
+        self.assertFalse(page_extractor.is_media_url("https://cdn.example/seg-20-v1-a1.mp4"))
+        self.assertTrue(page_extractor.is_media_url("https://cdn.example/index.m3u8?t=1"))
+
+    def test_browser_only_gets_cookies_of_the_page_site(self) -> None:
+        from http.cookiejar import Cookie
+
+        def cookie(domain: str) -> Cookie:
+            return Cookie(0, "session", "v", None, False, domain, True, True, "/", True,
+                          True, None, False, None, None, {"HttpOnly": None})
+
+        jar = [cookie(".ga.gg"), cookie("www.ga.gg"), cookie(".google.com")]
+        cookies = page_extractor._playwright_cookies(jar, self.PAGE)
+
+        self.assertEqual([item["domain"] for item in cookies], [".ga.gg", "www.ga.gg"])
+        self.assertTrue(cookies[0]["httpOnly"])
+
+
+class DownloadFallbackTests(unittest.TestCase):
+    def test_unsupported_page_downloads_embedded_stream_with_referer(self) -> None:
+        if vd_cli.yt_dlp is None:
+            self.skipTest("yt-dlp nicht installiert")
+        calls: list[tuple[str, dict]] = []
+
+        class FakeYDL:
+            def __init__(self, options):
+                self.options = options
+                self.cookiejar = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def extract_info(self, url, download=True):
+                calls.append((url, self.options))
+                if url.endswith("/video/"):
+                    raise vd_cli.yt_dlp.utils.DownloadError("ERROR: Unsupported URL: " + url)
+                return {"title": "master", "id": "master"}
+
+        media = vd_cli.EmbeddedMedia(
+            page_url="https://ga.gg/kurs/video/",
+            title="Kurs Video",
+            media_urls=["https://cdn.example/master.m3u8"],
+        )
+        options = vd_cli.build_ydl_options("best", Path(tempfile.gettempdir()))
+        with mock.patch.object(vd_cli.yt_dlp, "YoutubeDL", FakeYDL), mock.patch.object(
+            vd_cli, "find_embedded_media", return_value=media
+        ):
+            info = vd_cli.download_url("https://ga.gg/kurs/video/", options, log=lambda _text: None)
+
+        self.assertEqual(info["title"], "Kurs Video")
+        self.assertEqual(calls[1][0], "https://cdn.example/master.m3u8")
+        self.assertEqual(calls[1][1]["http_headers"]["Referer"], "https://ga.gg/kurs/video/")
+
+    def test_no_embedded_video_gives_clear_error(self) -> None:
+        if vd_cli.yt_dlp is None:
+            self.skipTest("yt-dlp nicht installiert")
+
+        class FakeYDL:
+            def __init__(self, options):
+                self.cookiejar = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def extract_info(self, url, download=True):
+                raise vd_cli.yt_dlp.utils.DownloadError("ERROR: Unsupported URL: " + url)
+
+        options = vd_cli.build_ydl_options("best", Path(tempfile.gettempdir()))
+        with mock.patch.object(vd_cli.yt_dlp, "YoutubeDL", FakeYDL), mock.patch.object(
+            vd_cli, "find_embedded_media", return_value=None
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                vd_cli.download_url("https://ga.gg/kurs/video/", options, log=lambda _text: None)
+
+        self.assertIn("Kein eingebettetes Video", vd_cli.friendly_error(str(ctx.exception)))
 
 
 if __name__ == "__main__":
