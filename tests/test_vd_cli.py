@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
+import browser_login
 import cookie_input
 import page_extractor
 import vd_cli
@@ -510,6 +511,67 @@ class CookieInputTests(unittest.TestCase):
         self.assertIn("PHPSESSID", seen["content"])
         self.assertFalse(Path(seen["path"]).exists())
         clear_mock.assert_called_once()
+
+
+class BrowserLoginTests(unittest.TestCase):
+    def test_saved_cookies_are_filtered_by_site_path_and_expiry(self) -> None:
+        cookies = [
+            {"name": "login", "value": "a", "domain": "ga.gg", "path": "/", "expires": -1},
+            {"name": "sub", "value": "b", "domain": ".ga.gg", "path": "/", "expires": 9999999999},
+            {"name": "admin", "value": "c", "domain": "ga.gg", "path": "/wp-admin", "expires": -1},
+            {"name": "old", "value": "d", "domain": "ga.gg", "path": "/", "expires": 1000},
+            {"name": "other", "value": "e", "domain": ".google.com", "path": "/", "expires": -1},
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            profile = Path(temp)
+            browser_login._save_cookies(profile, cookies)
+
+            self.assertTrue(browser_login.has_saved_login(profile))
+            names = [c["name"] for c in browser_login.saved_cookies_for("https://ga.gg/premium-kurse/x/", profile)]
+            self.assertEqual(names, ["login", "sub"])
+            names = [c["name"] for c in browser_login.saved_cookies_for("https://www.ga.gg/x/", profile)]
+            self.assertEqual(names, ["sub"])
+
+            self.assertTrue(browser_login.delete_saved_login(profile))
+            self.assertFalse(browser_login.has_saved_login(profile))
+
+    def test_cookies_to_netscape_is_readable_by_yt_dlp_format(self) -> None:
+        text = browser_login.cookies_to_netscape(
+            [
+                {"name": "a", "value": "1", "domain": ".ga.gg", "path": "/", "expires": 1900000000.5, "secure": True, "httpOnly": True},
+                {"name": "b", "value": "2", "domain": "ga.gg", "path": "/", "expires": -1, "secure": False},
+            ]
+        )
+        content, count = cookie_input.cookies_text_to_netscape(text, "https://ga.gg/")
+
+        self.assertEqual(count, 2)
+        self.assertIn("#HttpOnly_.ga.gg\tTRUE\t/\tTRUE\t1900000000\ta\t1", content)
+        self.assertIn("ga.gg\tFALSE\t/\tFALSE\t0\tb\t2", content)
+
+    def test_cli_uses_saved_login_automatically(self) -> None:
+        seen: dict[str, str] = {}
+
+        def fake_download(url, quality_key, folder, **kwargs):
+            seen["content"] = Path(kwargs["cookie_file"]).read_text(encoding="utf-8")
+            seen["path"] = kwargs["cookie_file"]
+            return {"title": "Video"}
+
+        with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
+            browser_login._save_cookies(
+                _ensure_dir(vd_cli.login_profile_dir()),
+                [{"name": "wordpress_logged_in_x", "value": "v", "domain": "ga.gg", "path": "/", "expires": -1}],
+            )
+            with mock.patch.object(vd_cli, "download", side_effect=fake_download), redirect_stdout(io.StringIO()):
+                code = vd_cli.main(["https://ga.gg/premium-kurse/x/", "-q", "best"])
+
+        self.assertEqual(code, 0)
+        self.assertIn("wordpress_logged_in_x", seen["content"])
+        self.assertFalse(Path(seen["path"]).exists())
+
+
+def _ensure_dir(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 if __name__ == "__main__":

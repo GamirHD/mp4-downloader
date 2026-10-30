@@ -16,6 +16,14 @@ try:
 except ImportError:  # pragma: no cover - handled at runtime
     yt_dlp = None
 
+from browser_login import (
+    BrowserLoginError,
+    cookies_to_netscape,
+    delete_saved_login,
+    has_saved_login,
+    interactive_login,
+    saved_cookies_for,
+)
 from cookie_input import (
     CookieInputError,
     clear_clipboard,
@@ -27,7 +35,7 @@ from page_extractor import EmbeddedMedia, find_embedded_media, referer_headers
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.9.2"
+__version__ = "0.9.3"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualität", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("Bis 1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
@@ -61,6 +69,29 @@ def config_dir() -> Path:
 
 def config_path() -> Path:
     return config_dir() / "settings.json"
+
+
+def login_profile_dir() -> Path:
+    return config_dir() / "browser-profile"
+
+
+def saved_login_cookie_text(url: str, *, log: Any = print) -> str | None:
+    """Cookies for ``url`` from the login saved with `vd login`, or None."""
+    profile_dir = login_profile_dir()
+    if not has_saved_login(profile_dir):
+        return None
+    try:
+        cookies = saved_cookies_for(url, profile_dir)
+    except BrowserLoginError as exc:
+        log(f"Gespeicherter Login nicht nutzbar: {exc}")
+        return None
+    except Exception as exc:  # noqa: BLE001 - never block a download because of this
+        log(f"Gespeicherter Login konnte nicht gelesen werden: {exc}")
+        return None
+    if not cookies:
+        return None
+    log(f"Gespeicherter Login wird verwendet ({len(cookies)} Cookies).")
+    return cookies_to_netscape(cookies)
 
 
 def download_archive_path() -> Path:
@@ -613,6 +644,23 @@ def history_command(args: argparse.Namespace) -> int:
     print(f"Verlauf-Datei: {history_path()}")
     return 0
 
+def login_command(args: argparse.Namespace) -> int:
+    urls = normalize_url_args([args.url])
+    if not urls:
+        print(no_urls_found_message(), file=sys.stderr)
+        return 2
+    try:
+        count = interactive_login(urls[0], login_profile_dir())
+    except BrowserLoginError as exc:
+        print(f"Fehler: {exc}", file=sys.stderr)
+        return 1
+    if count:
+        print(f"Login gespeichert ({count} Cookies). Ab jetzt reicht: vd \"LINK\"")
+        return 0
+    print("Es wurden keine Cookies fuer diese Seite gespeichert. Warst du eingeloggt?", file=sys.stderr)
+    return 1
+
+
 def settings_command(args: argparse.Namespace) -> int:
     settings = load_settings()
     changed = False
@@ -726,6 +774,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--no-saved-login",
+        action="store_true",
+        help="Den mit `vd login` gespeicherten Login fuer diesen Download nicht verwenden",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Diagnose speichern (Screenshot und Anfragen des Hintergrund-Browsers) im Ordner vd-debug",
@@ -766,6 +819,19 @@ def main(argv: list[str] | None = None) -> int:
         archive_group.add_argument("--no-archive", action="store_false", dest="archive", help="Download-Archiv standardmaessig deaktivieren")
         settings_parser.set_defaults(archive=None)
         return settings_command(settings_parser.parse_args(argv[1:]))
+    if argv and argv[0] == "login":
+        login_parser = argparse.ArgumentParser(
+            prog="vd login",
+            description="Einmal im Programm-Browser einloggen; danach nutzt vd den Login automatisch.",
+        )
+        login_parser.add_argument("url", help="Seite, auf der du dich einloggen willst, z. B. https://ga.gg")
+        return login_command(login_parser.parse_args(argv[1:]))
+    if argv and argv[0] == "logout":
+        if delete_saved_login(login_profile_dir()):
+            print("Gespeicherter Login geloescht.")
+        else:
+            print("Es war kein Login gespeichert.")
+        return 0
     if argv and argv[0] == "qualities":
         return qualities_command()
 
@@ -783,6 +849,8 @@ def main(argv: list[str] | None = None) -> int:
         print("  vd settings --folder PFAD Downloadordner aendern")
         print("  vd history               Download-Verlauf anzeigen")
         print("  vd qualities             Qualitaeten anzeigen")
+        print("  vd login LINK            Einmal einloggen, danach automatisch mit Login laden")
+        print("  vd logout                Gespeicherten Login loeschen")
         return 2
 
     settings = load_settings()
@@ -828,17 +896,23 @@ def main(argv: list[str] | None = None) -> int:
                 print()
                 print(f"[{index}/{len(urls)}] {url}")
             try:
-                info = download(
-                    url,
-                    quality_key,
-                    folder,
-                    allow_playlist=args.playlist,
-                    cookies_from_browser=cookies_from_browser,
-                    cookie_file=cookie_file,
-                    referer=args.referer,
-                    use_download_archive=use_download_archive,
-                    debug=args.debug,
-                )
+                with contextlib.ExitStack() as url_stack:
+                    url_cookie_file = cookie_file
+                    if url_cookie_file is None and not cookies_from_browser and not args.no_saved_login:
+                        saved = saved_login_cookie_text(url)
+                        if saved:
+                            url_cookie_file = str(url_stack.enter_context(temporary_cookie_file(saved)))
+                    info = download(
+                        url,
+                        quality_key,
+                        folder,
+                        allow_playlist=args.playlist,
+                        cookies_from_browser=cookies_from_browser,
+                        cookie_file=url_cookie_file,
+                        referer=args.referer,
+                        use_download_archive=use_download_archive,
+                        debug=args.debug,
+                    )
                 title = info.get("title", "Video") if isinstance(info, dict) else "Video"
                 add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
             except Exception as exc:  # noqa: BLE001 - CLI boundary
