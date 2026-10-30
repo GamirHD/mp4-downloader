@@ -10,6 +10,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
+from browser_login import BrowserLoginError, interactive_login
 from cookie_input import CookieInputError, cookies_text_to_netscape, temporary_cookie_file
 from vd_cli import (
     BROWSER_CHOICES,
@@ -17,6 +18,8 @@ from vd_cli import (
     add_history_entry,
     build_ydl_options,
     download_url,
+    login_profile_dir,
+    saved_login_cookie_text,
     extract_urls_from_text,
     friendly_error,
     load_history,
@@ -49,7 +52,7 @@ GUI_QUALITY_KEYS = list(QUALITY_OPTIONS)
 GUI_QUALITY_LABELS = {key: values[0] for key, values in QUALITY_OPTIONS.items()}
 GUI_QUALITY_CHOICES = [GUI_QUALITY_LABELS[key] for key in GUI_QUALITY_KEYS]
 GUI_QUALITY_BY_LABEL = dict(zip(GUI_QUALITY_CHOICES, GUI_QUALITY_KEYS))
-GUI_NO_BROWSER_LABEL = "Kein Login"
+GUI_NO_BROWSER_LABEL = "Automatisch (gespeicherter Login)"
 GUI_CLIPBOARD_LABEL = "Aus Zwischenablage (cookies.txt)"
 GUI_BROWSER_CHOICES = [
     GUI_NO_BROWSER_LABEL,
@@ -129,6 +132,7 @@ class DownloaderApp(tk.Tk):
         self.footer_frame: ttk.Frame | None = None
         self.primary_action_button: tk.Button | None = None
         self.cancel_button: tk.Button | None = None
+        self.login_button: tk.Button | None = None
 
         self._build_ui()
         self.after(100, self._poll_messages)
@@ -380,12 +384,13 @@ class DownloaderApp(tk.Tk):
             width=22,
         )
         browser_box.grid(row=3, column=1, sticky="ew", padx=(10, 0), pady=(12, 0))
+        self.login_button = self._button(options, "Einloggen…", self._start_login)
+        self.login_button.grid(row=3, column=2, columnspan=2, sticky="w", padx=(10, 0), pady=(12, 0))
         ttk.Label(
             options,
             text=(
-                "Für Seiten mit Login (z. B. Kurse). Bei Brave/Chrome unter Windows: Cookies mit "
-                "„Get cookies.txt LOCALLY“ kopieren und „Aus Zwischenablage“ wählen – "
-                "sie werden nicht gespeichert."
+                "Für Seiten mit Login (z. B. Kurse): einmal auf „Einloggen…“ klicken, im Fenster "
+                "einloggen und es schließen. Danach wird der Login automatisch verwendet."
             ),
             style="Surface.TLabel",
             foreground=MUTED_TEXT_COLOR,
@@ -619,6 +624,32 @@ class DownloaderApp(tk.Tk):
         )
         self.download_thread.start()
 
+    def _start_login(self) -> None:
+        if self.download_thread and self.download_thread.is_alive():
+            return
+        url = self.queued_urls[0] if self.queued_urls else ""
+        if not url:
+            messagebox.showwarning(APP_TITLE, "Bitte zuerst einen Link einfügen.")
+            return
+        self.login_button.configure(state="disabled")
+        self.status_var.set("Browserfenster offen: einloggen und Fenster schließen...")
+
+        def worker() -> None:
+            try:
+                count = interactive_login(url, login_profile_dir(), log=lambda _text: None)
+            except BrowserLoginError as exc:
+                self.messages.put(("login_done", f"Login nicht möglich: {exc}"))
+                return
+            except Exception as exc:  # noqa: BLE001 - user-facing GUI boundary
+                self.messages.put(("login_done", f"Login fehlgeschlagen: {exc}"))
+                return
+            if count:
+                self.messages.put(("login_done", f"Login gespeichert ({count} Cookies)."))
+            else:
+                self.messages.put(("login_done", "Keine Cookies gespeichert – warst du eingeloggt?"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _cancel_download(self) -> None:
         if not self.download_thread or not self.download_thread.is_alive():
             return
@@ -672,16 +703,20 @@ class DownloaderApp(tk.Tk):
                 if filename:
                     self.messages.put(("log", f"Heruntergeladen: {filename}"))
 
-        ydl_opts = build_ydl_options(
-            quality_key,
-            folder,
-            allow_playlist=False,
-            cookies_from_browser=cookies_from_browser,
-            cookie_file=cookie_file,
-            use_download_archive=False,
-            progress_hooks=[hook],
-            logger=QueueLogger(self.messages),
-        )
+        def options_for(url_cookie_file: str | None) -> dict[str, Any]:
+            return build_ydl_options(
+                quality_key,
+                folder,
+                allow_playlist=False,
+                cookies_from_browser=cookies_from_browser,
+                cookie_file=url_cookie_file,
+                use_download_archive=False,
+                progress_hooks=[hook],
+                logger=QueueLogger(self.messages),
+            )
+
+        def log(text: str) -> None:
+            self.messages.put(("log", text))
 
         failures: list[str] = []
         for index, url in enumerate(urls, start=1):
@@ -692,7 +727,14 @@ class DownloaderApp(tk.Tk):
                 self.messages.put(("log", f"[{index}/{len(urls)}] {url}"))
                 self.messages.put(("status", f"Download {index} von {len(urls)} läuft..."))
             try:
-                info = download_url(url, ydl_opts, log=lambda text: self.messages.put(("log", text)))
+                saved = None
+                if cookie_file is None and cookies_from_browser is None:
+                    saved = saved_login_cookie_text(url, log=log)
+                if saved:
+                    with temporary_cookie_file(saved) as saved_file:
+                        info = download_url(url, options_for(str(saved_file)), log=log)
+                else:
+                    info = download_url(url, options_for(cookie_file), log=log)
                 title = info.get("title", "Video") if isinstance(info, dict) else "Video"
                 add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
                 self.messages.put(("history_changed", None))
@@ -727,6 +769,13 @@ class DownloaderApp(tk.Tk):
                 self.progress_var.set(float(payload))
             elif message_type == "status":
                 self.status_var.set(str(payload))
+            elif message_type == "login_done":
+                self.status_var.set(str(payload))
+                try:
+                    self.login_button.configure(state="normal")
+                except (AttributeError, tk.TclError):
+                    pass
+                messagebox.showinfo(APP_TITLE, str(payload))
             elif message_type == "history_changed":
                 self._refresh_history()
             elif message_type == "done":

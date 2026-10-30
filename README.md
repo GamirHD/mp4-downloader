@@ -26,6 +26,7 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 - Shared download history for CLI and GUI
 - Videos embedded in normal web pages (e.g. course platforms with their own player): paste the page link and the app finds the stream
 - GUI browser-login choice for pages that require your login
+- One-time login in the app's own browser window (`vd login`), used automatically afterwards
 - Login cookies from the clipboard, used only temporarily (no cookie file left in the download folder)
 
 ## Before Installing
@@ -195,7 +196,20 @@ The page is sent as `Referer` and the file is named after the page title.
 vd "https://example.com/kurse/mein-kurs/video-1/" --cookies-from-browser firefox
 ```
 
-For pages behind a login, choose the browser you are logged in with (`--cookies-from-browser`,
+The easiest way for pages behind a login: log in once in the app's own browser window. After that
+the login is used automatically and a plain `vd "LINK"` is enough:
+
+```bash
+vd login "https://example.com"
+vd "https://example.com/kurse/mein-kurs/video-1/"
+vd logout   # delete the saved login
+```
+
+The login is stored only in the app settings folder (not in the download folder). In the GUI use
+the "Einloggen…" button next to "Browser-Login". Websites usually keep you logged in for a few
+weeks; when downloads stop working, run `vd login` again.
+
+Alternatively, choose the browser you are logged in with (`--cookies-from-browser`,
 or "Browser-Login" in the GUI). If reading the browser cookies fails (Chromium browsers on
 Windows can block this), log in with Firefox or export a `cookies.txt` with a browser extension:
 

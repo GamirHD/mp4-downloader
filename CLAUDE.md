@@ -2,7 +2,8 @@
 
 ## Umgebung des Besitzers (GamirHD)
 - Windows-Rechner, Kommandozeile ist **PowerShell** (Befehle immer für PowerShell angeben, z. B. `Stop-Process -Name brave -Force` statt `taskkill`; `taskkill` ist dort nicht im PATH).
-- Browser: **Brave**. `--cookies-from-browser brave` schlägt unter Windows fehl ("Failed to decrypt with DPAPI", App-Bound Encryption). Für Seiten mit Login stattdessen `--cookies cookies.txt` nutzen (Export mit der Erweiterung "Get cookies.txt LOCALLY").
+- Browser: **Brave**. `--cookies-from-browser brave` schlägt unter Windows fehl ("Failed to decrypt with DPAPI", App-Bound Encryption). Für Seiten mit Login: einmal `vd login https://ga.gg` (eigenes Browserfenster des Programms), danach reicht `vd "LINK"`. Alternativen: `--cookies-from-clipboard` oder `--cookies cookies.txt`.
+- Kurse auf ga.gg sind bei **Wistia** gehostet; mit Login erkennt yt-dlp sie direkt. „Beste Qualität“ lädt dort die riesige Originaldatei (~11 GB für 95 min), `-q 1080p` ist deutlich kleiner.
 - Die CLI `vd` ist per `python -m pip install` in die System-Python-Installation installiert (siehe `install.ps1`); zusätzliche Pakete wie Playwright mit `python -m pip install ...` installieren.
 - Antworten auf Deutsch.
 
