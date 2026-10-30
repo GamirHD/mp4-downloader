@@ -11,9 +11,11 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from vd_cli import (
+    BROWSER_CHOICES,
     QUALITY_OPTIONS,
     add_history_entry,
     build_ydl_options,
+    download_url,
     extract_urls_from_text,
     friendly_error,
     load_history,
@@ -46,6 +48,9 @@ GUI_QUALITY_KEYS = list(QUALITY_OPTIONS)
 GUI_QUALITY_LABELS = {key: values[0] for key, values in QUALITY_OPTIONS.items()}
 GUI_QUALITY_CHOICES = [GUI_QUALITY_LABELS[key] for key in GUI_QUALITY_KEYS]
 GUI_QUALITY_BY_LABEL = dict(zip(GUI_QUALITY_CHOICES, GUI_QUALITY_KEYS))
+GUI_NO_BROWSER_LABEL = "Kein Login"
+GUI_BROWSER_CHOICES = [GUI_NO_BROWSER_LABEL, *(name.capitalize() for name in BROWSER_CHOICES)]
+GUI_BROWSER_BY_LABEL = {name.capitalize(): name for name in BROWSER_CHOICES}
 
 
 def enable_high_dpi_rendering() -> None:
@@ -100,6 +105,10 @@ class DownloaderApp(tk.Tk):
 
         self.folder_var = tk.StringVar(value=self.settings["download_dir"])
         self.quality_var = tk.StringVar(value=GUI_QUALITY_CHOICES[0])
+        saved_browser = self.settings.get("cookies_from_browser")
+        self.browser_var = tk.StringVar(
+            value=saved_browser.capitalize() if saved_browser else GUI_NO_BROWSER_LABEL
+        )
         self.status_var = tk.StringVar(value="Bereit")
         self.progress_var = tk.DoubleVar(value=0)
         self.queued_urls: list[str] = []
@@ -352,6 +361,23 @@ class DownloaderApp(tk.Tk):
         self._button(options, "Wählen", self._choose_folder).grid(row=2, column=2, pady=(12, 0))
         self._button(options, "Öffnen", self._open_folder).grid(row=2, column=3, padx=(8, 0), pady=(12, 0))
 
+        ttk.Label(options, text="Browser-Login", style="Surface.TLabel").grid(row=3, column=0, sticky="w", pady=(12, 0))
+        browser_box = ttk.Combobox(
+            options,
+            textvariable=self.browser_var,
+            values=GUI_BROWSER_CHOICES,
+            state="readonly",
+            width=22,
+        )
+        browser_box.grid(row=3, column=1, sticky="ew", padx=(10, 0), pady=(12, 0))
+        ttk.Label(
+            options,
+            text="Für Seiten mit Login (z. B. Kurse): Browser wählen, in dem du eingeloggt bist.",
+            style="Surface.TLabel",
+            foreground=MUTED_TEXT_COLOR,
+            wraplength=460,
+        ).grid(row=4, column=1, columnspan=3, sticky="w", padx=(10, 0), pady=(4, 0))
+
         self._button(self.footer_frame, "Zurück", self._show_links_step).grid(row=0, column=0, sticky="e", padx=(0, 8))
         self.primary_action_button = self._button(
             self.footer_frame,
@@ -529,6 +555,7 @@ class DownloaderApp(tk.Tk):
         urls = self._read_urls()
         folder = Path(self.folder_var.get()).expanduser()
         quality = GUI_QUALITY_BY_LABEL.get(self.quality_var.get(), GUI_QUALITY_KEYS[0])
+        browser = GUI_BROWSER_BY_LABEL.get(self.browser_var.get())
 
         if yt_dlp is None:
             messagebox.showerror(APP_TITLE, "yt-dlp ist nicht installiert.")
@@ -544,6 +571,7 @@ class DownloaderApp(tk.Tk):
 
         self.settings["download_dir"] = str(folder)
         self.settings["use_download_archive"] = False
+        self.settings["cookies_from_browser"] = browser
         save_settings(self.settings)
         self.cancel_requested.clear()
         self.progress_var.set(0)
@@ -556,7 +584,7 @@ class DownloaderApp(tk.Tk):
             self._log(f"Starte Batch-Download mit {len(urls)} Links.")
         self.download_thread = threading.Thread(
             target=self._download_worker,
-            args=(urls, folder, quality),
+            args=(urls, folder, quality, browser),
             daemon=True,
         )
         self.download_thread.start()
@@ -577,6 +605,7 @@ class DownloaderApp(tk.Tk):
         urls: list[str],
         folder: Path,
         quality_key: str,
+        cookies_from_browser: str | None = None,
     ) -> None:
         def hook(data: dict[str, Any]) -> None:
             if self.cancel_requested.is_set():
@@ -601,7 +630,7 @@ class DownloaderApp(tk.Tk):
             quality_key,
             folder,
             allow_playlist=False,
-            cookies_from_browser=None,
+            cookies_from_browser=cookies_from_browser,
             use_download_archive=False,
             progress_hooks=[hook],
             logger=QueueLogger(self.messages),
@@ -616,8 +645,7 @@ class DownloaderApp(tk.Tk):
                 self.messages.put(("log", f"[{index}/{len(urls)}] {url}"))
                 self.messages.put(("status", f"Download {index} von {len(urls)} läuft..."))
             try:
-                with yt_dlp.YoutubeDL(ydl_opts) as downloader:
-                    info = downloader.extract_info(url, download=True)
+                info = download_url(url, ydl_opts, log=lambda text: self.messages.put(("log", text)))
                 title = info.get("title", "Video") if isinstance(info, dict) else "Video"
                 add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
                 self.messages.put(("history_changed", None))

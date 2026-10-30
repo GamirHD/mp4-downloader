@@ -24,6 +24,8 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 - GUI paste trims common chat wrappers like `<...>` and trailing punctuation
 - GUI and CLI explain when pasted text contains no supported link
 - Shared download history for CLI and GUI
+- Videos embedded in normal web pages (e.g. course platforms with their own player): paste the page link and the app finds the stream
+- GUI browser-login choice for pages that require your login
 
 ## Before Installing
 
@@ -175,6 +177,46 @@ Use cookies from a local browser when a site requires your login session:
 vd "https://www.youtube.com/watch?v=..." --cookies-from-browser firefox
 vd "https://www.youtube.com/watch?v=..." --quality mp3 --cookies-from-browser chrome
 ```
+
+### Videos embedded in web pages
+
+Many sites (for example course platforms) use their own video player. You can paste the
+link of the page itself; the app then searches for the embedded video:
+
+1. yt-dlp tries the page directly (works for many known players such as Vimeo or Kaltura).
+2. Otherwise the page HTML is searched for `.m3u8`, `.mpd` or `.mp4` streams and player iframes.
+3. If the player builds the stream with JavaScript, the page is opened in a hidden browser
+   and the stream request is recorded (needs Playwright, see below).
+
+The page is sent as `Referer` and the file is named after the page title.
+
+```bash
+vd "https://example.com/kurse/mein-kurs/video-1/" --cookies-from-browser firefox
+```
+
+For pages behind a login, choose the browser you are logged in with (`--cookies-from-browser`,
+or "Browser-Login" in the GUI). If reading the browser cookies fails (Chromium browsers on
+Windows can block this), log in with Firefox or export a `cookies.txt` with a browser extension:
+
+```bash
+vd "https://example.com/kurse/mein-kurs/video-1/" --cookies cookies.txt
+```
+
+Optional hidden-browser search for JavaScript players:
+
+```bash
+python -m pip install playwright
+python -m playwright install chromium
+```
+
+You can also copy a stream link from the browser developer tools (F12 > Network, filter `m3u8`)
+and pass the page as referer:
+
+```bash
+vd "https://cdn.example.com/.../master.m3u8?token=..." --referer "https://example.com/kurse/mein-kurs/video-1/"
+```
+
+DRM-protected (copy-protected) videos are not supported.
 
 Download a full playlist instead of only the linked video:
 
