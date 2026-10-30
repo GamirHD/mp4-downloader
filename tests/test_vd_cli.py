@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
+import cookie_input
 import page_extractor
 import vd_cli
 
@@ -30,7 +31,12 @@ class VdCliSharedStateTests(unittest.TestCase):
 
         self.assertEqual(
             vd_cli.load_settings(),
-            {"download_dir": str(folder), "use_download_archive": True, "cookies_from_browser": None},
+            {
+                "download_dir": str(folder),
+                "use_download_archive": True,
+                "cookies_from_browser": None,
+                "cookies_from_clipboard": False,
+            },
         )
 
     def test_settings_ignore_non_string_download_dir(self) -> None:
@@ -445,6 +451,65 @@ class DownloadFallbackTests(unittest.TestCase):
                 vd_cli.download_url("https://ga.gg/kurs/video/", options, log=lambda _text: None)
 
         self.assertIn("Kein eingebettetes Video", vd_cli.friendly_error(str(ctx.exception)))
+
+
+class CookieInputTests(unittest.TestCase):
+    URL = "https://ga.gg/premium-kurse/kurs/video/"
+
+    def test_netscape_text_is_kept_including_httponly_lines(self) -> None:
+        text = (
+            "# Netscape HTTP Cookie File\n# comment\n\n"
+            "ga.gg\tFALSE\t/\tTRUE\t0\tPHPSESSID\tabc\n"
+            "#HttpOnly_ga.gg\tFALSE\t/\tTRUE\t1794649663\twordpress_logged_in_x\tuser%7C1\n"
+        )
+        content, count = cookie_input.cookies_text_to_netscape(text, self.URL)
+
+        self.assertEqual(count, 2)
+        self.assertTrue(content.startswith("# Netscape HTTP Cookie File"))
+        self.assertIn("#HttpOnly_ga.gg", content)
+
+    def test_cookie_header_is_converted_for_the_link_domain(self) -> None:
+        content, count = cookie_input.cookies_text_to_netscape(
+            "cookie: PHPSESSID=abc; wordpress_logged_in_x=user%7C1==; empty=", "https://www.ga.gg/x/"
+        )
+
+        self.assertEqual(count, 3)
+        self.assertIn(".ga.gg\tTRUE\t/\tFALSE\t0\twordpress_logged_in_x\tuser%7C1==", content)
+
+    def test_random_clipboard_text_is_rejected(self) -> None:
+        for text in ("", "   ", "https://ga.gg/premium-kurse/", "hallo welt"):
+            with self.assertRaises(cookie_input.CookieInputError):
+                cookie_input.cookies_text_to_netscape(text, self.URL)
+
+    def test_temporary_cookie_file_is_deleted_even_on_error(self) -> None:
+        with self.assertRaises(RuntimeError):
+            with cookie_input.temporary_cookie_file("# Netscape HTTP Cookie File\n") as path:
+                self.assertTrue(path.exists())
+                remembered = path
+                raise RuntimeError("download failed")
+        self.assertFalse(remembered.exists())
+
+    def test_cli_uses_clipboard_cookies_temporarily(self) -> None:
+        clipboard = "ga.gg\tFALSE\t/\tTRUE\t0\tPHPSESSID\tabc\n"
+        seen: dict[str, str] = {}
+
+        def fake_download(url, quality_key, folder, **kwargs):
+            path = Path(kwargs["cookie_file"])
+            seen["path"] = str(path)
+            seen["content"] = path.read_text(encoding="utf-8")
+            return {"title": "Video"}
+
+        with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
+            with mock.patch.object(vd_cli, "read_clipboard_text", return_value=clipboard), mock.patch.object(
+                vd_cli, "clear_clipboard", return_value=True
+            ) as clear_mock, mock.patch.object(vd_cli, "download", side_effect=fake_download):
+                with redirect_stdout(io.StringIO()):
+                    code = vd_cli.main([self.URL, "-q", "best", "--cookies-from-clipboard"])
+
+        self.assertEqual(code, 0)
+        self.assertIn("PHPSESSID", seen["content"])
+        self.assertFalse(Path(seen["path"]).exists())
+        clear_mock.assert_called_once()
 
 
 if __name__ == "__main__":

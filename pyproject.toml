@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mp4-downloader"
-version = "0.9.1"
+version = "0.9.2"
 description = "Desktop and console MP4/MP3 downloader powered by yt-dlp."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,4 +24,4 @@ build = [
 vd = "vd_cli:main"
 
 [tool.setuptools]
-py-modules = ["mp4_downloader", "page_extractor", "run", "vd_cli"]
+py-modules = ["cookie_input", "mp4_downloader", "page_extractor", "run", "vd_cli"]
