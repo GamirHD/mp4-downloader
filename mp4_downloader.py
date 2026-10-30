@@ -10,6 +10,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
+from cookie_input import CookieInputError, cookies_text_to_netscape, temporary_cookie_file
 from vd_cli import (
     BROWSER_CHOICES,
     QUALITY_OPTIONS,
@@ -49,7 +50,12 @@ GUI_QUALITY_LABELS = {key: values[0] for key, values in QUALITY_OPTIONS.items()}
 GUI_QUALITY_CHOICES = [GUI_QUALITY_LABELS[key] for key in GUI_QUALITY_KEYS]
 GUI_QUALITY_BY_LABEL = dict(zip(GUI_QUALITY_CHOICES, GUI_QUALITY_KEYS))
 GUI_NO_BROWSER_LABEL = "Kein Login"
-GUI_BROWSER_CHOICES = [GUI_NO_BROWSER_LABEL, *(name.capitalize() for name in BROWSER_CHOICES)]
+GUI_CLIPBOARD_LABEL = "Aus Zwischenablage (cookies.txt)"
+GUI_BROWSER_CHOICES = [
+    GUI_NO_BROWSER_LABEL,
+    GUI_CLIPBOARD_LABEL,
+    *(name.capitalize() for name in BROWSER_CHOICES),
+]
 GUI_BROWSER_BY_LABEL = {name.capitalize(): name for name in BROWSER_CHOICES}
 
 
@@ -106,9 +112,13 @@ class DownloaderApp(tk.Tk):
         self.folder_var = tk.StringVar(value=self.settings["download_dir"])
         self.quality_var = tk.StringVar(value=GUI_QUALITY_CHOICES[0])
         saved_browser = self.settings.get("cookies_from_browser")
-        self.browser_var = tk.StringVar(
-            value=saved_browser.capitalize() if saved_browser else GUI_NO_BROWSER_LABEL
-        )
+        if self.settings.get("cookies_from_clipboard"):
+            initial_login = GUI_CLIPBOARD_LABEL
+        elif saved_browser:
+            initial_login = saved_browser.capitalize()
+        else:
+            initial_login = GUI_NO_BROWSER_LABEL
+        self.browser_var = tk.StringVar(value=initial_login)
         self.status_var = tk.StringVar(value="Bereit")
         self.progress_var = tk.DoubleVar(value=0)
         self.queued_urls: list[str] = []
@@ -372,7 +382,11 @@ class DownloaderApp(tk.Tk):
         browser_box.grid(row=3, column=1, sticky="ew", padx=(10, 0), pady=(12, 0))
         ttk.Label(
             options,
-            text="Für Seiten mit Login (z. B. Kurse): Browser wählen, in dem du eingeloggt bist.",
+            text=(
+                "Für Seiten mit Login (z. B. Kurse). Bei Brave/Chrome unter Windows: Cookies mit "
+                "„Get cookies.txt LOCALLY“ kopieren und „Aus Zwischenablage“ wählen – "
+                "sie werden nicht gespeichert."
+            ),
             style="Surface.TLabel",
             foreground=MUTED_TEXT_COLOR,
             wraplength=460,
@@ -556,6 +570,7 @@ class DownloaderApp(tk.Tk):
         folder = Path(self.folder_var.get()).expanduser()
         quality = GUI_QUALITY_BY_LABEL.get(self.quality_var.get(), GUI_QUALITY_KEYS[0])
         browser = GUI_BROWSER_BY_LABEL.get(self.browser_var.get())
+        use_clipboard = self.browser_var.get() == GUI_CLIPBOARD_LABEL
 
         if yt_dlp is None:
             messagebox.showerror(APP_TITLE, "yt-dlp ist nicht installiert.")
@@ -571,7 +586,22 @@ class DownloaderApp(tk.Tk):
 
         self.settings["download_dir"] = str(folder)
         self.settings["use_download_archive"] = False
+        clipboard_cookies: str | None = None
+        if use_clipboard:
+            try:
+                clipboard_text = self.clipboard_get()
+            except tk.TclError:
+                clipboard_text = ""
+            try:
+                clipboard_cookies, _count = cookies_text_to_netscape(clipboard_text, urls[0])
+            except CookieInputError as exc:
+                messagebox.showwarning(APP_TITLE, str(exc))
+                return
+            self.clipboard_clear()
+            self.clipboard_append("")
+
         self.settings["cookies_from_browser"] = browser
+        self.settings["cookies_from_clipboard"] = use_clipboard
         save_settings(self.settings)
         self.cancel_requested.clear()
         self.progress_var.set(0)
@@ -584,7 +614,7 @@ class DownloaderApp(tk.Tk):
             self._log(f"Starte Batch-Download mit {len(urls)} Links.")
         self.download_thread = threading.Thread(
             target=self._download_worker,
-            args=(urls, folder, quality, browser),
+            args=(urls, folder, quality, browser, clipboard_cookies),
             daemon=True,
         )
         self.download_thread.start()
@@ -606,6 +636,22 @@ class DownloaderApp(tk.Tk):
         folder: Path,
         quality_key: str,
         cookies_from_browser: str | None = None,
+        clipboard_cookies: str | None = None,
+    ) -> None:
+        if clipboard_cookies is not None:
+            self.messages.put(("log", "Cookies aus der Zwischenablage werden nur temporär verwendet."))
+            with temporary_cookie_file(clipboard_cookies) as cookie_file:
+                self._run_downloads(urls, folder, quality_key, None, str(cookie_file))
+            return
+        self._run_downloads(urls, folder, quality_key, cookies_from_browser, None)
+
+    def _run_downloads(
+        self,
+        urls: list[str],
+        folder: Path,
+        quality_key: str,
+        cookies_from_browser: str | None,
+        cookie_file: str | None,
     ) -> None:
         def hook(data: dict[str, Any]) -> None:
             if self.cancel_requested.is_set():
@@ -631,6 +677,7 @@ class DownloaderApp(tk.Tk):
             folder,
             allow_playlist=False,
             cookies_from_browser=cookies_from_browser,
+            cookie_file=cookie_file,
             use_download_archive=False,
             progress_hooks=[hook],
             logger=QueueLogger(self.messages),

@@ -26,6 +26,7 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 - Shared download history for CLI and GUI
 - Videos embedded in normal web pages (e.g. course platforms with their own player): paste the page link and the app finds the stream
 - GUI browser-login choice for pages that require your login
+- Login cookies from the clipboard, used only temporarily (no cookie file left in the download folder)
 
 ## Before Installing
 
@@ -201,6 +202,17 @@ Windows can block this), log in with Firefox or export a `cookies.txt` with a br
 ```bash
 vd "https://example.com/kurse/mein-kurs/video-1/" --cookies cookies.txt
 ```
+
+Or paste the cookies from the clipboard so that no cookie file is left behind. Copy them with
+"Get cookies.txt LOCALLY" (Copy button) or copy the `cookie` request header from the developer
+tools, then run:
+
+```bash
+vd "https://example.com/kurse/mein-kurs/video-1/" --cookies-from-clipboard
+```
+
+The cookies are only written to a private temporary file during the download, deleted afterwards,
+and the clipboard is cleared. In the GUI choose "Aus Zwischenablage (cookies.txt)" under "Browser-Login".
 
 Optional hidden-browser search for JavaScript players:
 

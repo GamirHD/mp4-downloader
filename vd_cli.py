@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -15,11 +16,18 @@ try:
 except ImportError:  # pragma: no cover - handled at runtime
     yt_dlp = None
 
+from cookie_input import (
+    CookieInputError,
+    clear_clipboard,
+    cookies_text_to_netscape,
+    read_clipboard_text,
+    temporary_cookie_file,
+)
 from page_extractor import EmbeddedMedia, find_embedded_media, referer_headers
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualität", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("Bis 1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
@@ -149,7 +157,7 @@ def _coerce_bool(value: Any, default: bool) -> bool:
 
 
 def load_settings() -> dict[str, Any]:
-    defaults = {"download_dir": str(default_download_dir()), "use_download_archive": False, "cookies_from_browser": None}
+    defaults = {"download_dir": str(default_download_dir()), "use_download_archive": False, "cookies_from_browser": None, "cookies_from_clipboard": False}
     path = config_path()
     if not path.exists():
         return defaults
@@ -172,6 +180,7 @@ def load_settings() -> dict[str, Any]:
             defaults["use_download_archive"],
         ),
         "cookies_from_browser": cookies_from_browser,
+        "cookies_from_clipboard": _coerce_bool(data.get("cookies_from_clipboard", False), False),
     }
 
 
@@ -709,6 +718,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Cookies aus einer cookies.txt-Datei (Netscape-Format) verwenden",
     )
     parser.add_argument(
+        "--cookies-from-clipboard",
+        action="store_true",
+        help=(
+            "Cookies aus der Zwischenablage verwenden (cookies.txt-Text oder Cookie-Header). "
+            "Sie werden nur temporaer genutzt, danach geloescht, und die Zwischenablage wird geleert"
+        ),
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Diagnose speichern (Screenshot und Anfragen des Hintergrund-Browsers) im Ordner vd-debug",
@@ -772,7 +789,9 @@ def main(argv: list[str] | None = None) -> int:
     folder = Path(args.folder or settings["download_dir"]).expanduser()
     quality_key = args.quality or choose_quality()
 
-    cookies_from_browser = args.cookies_from_browser or settings.get("cookies_from_browser")
+    cookies_from_browser = args.cookies_from_browser
+    if not cookies_from_browser and not args.cookies and not args.cookies_from_clipboard:
+        cookies_from_browser = settings.get("cookies_from_browser")
 
     print(f"Zielordner: {folder}")
     print(f"Qualitaet: {QUALITY_OPTIONS[quality_key][0]}")
@@ -788,28 +807,43 @@ def main(argv: list[str] | None = None) -> int:
     if len(urls) > 1:
         print(f"Links: {len(urls)}")
 
-    failures = 0
-    for index, url in enumerate(urls, start=1):
-        if len(urls) > 1:
-            print()
-            print(f"[{index}/{len(urls)}] {url}")
+    clipboard_cookies: str | None = None
+    if args.cookies_from_clipboard:
         try:
-            info = download(
-                url,
-                quality_key,
-                folder,
-                allow_playlist=args.playlist,
-                cookies_from_browser=cookies_from_browser,
-                cookie_file=args.cookies,
-                referer=args.referer,
-                use_download_archive=use_download_archive,
-                debug=args.debug,
-            )
-            title = info.get("title", "Video") if isinstance(info, dict) else "Video"
-            add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
-        except Exception as exc:  # noqa: BLE001 - CLI boundary
-            failures += 1
-            print(f"Fehler: {friendly_error(str(exc))}", file=sys.stderr)
+            clipboard_cookies, cookie_count = cookies_text_to_netscape(read_clipboard_text(), urls[0])
+        except CookieInputError as exc:
+            print(f"Fehler: {exc}", file=sys.stderr)
+            return 2
+        print(f"Cookies aus der Zwischenablage: {cookie_count} (werden nicht gespeichert)")
+        if clear_clipboard():
+            print("Zwischenablage geleert.")
+
+    failures = 0
+    with contextlib.ExitStack() as stack:
+        cookie_file = args.cookies
+        if clipboard_cookies is not None:
+            cookie_file = str(stack.enter_context(temporary_cookie_file(clipboard_cookies)))
+        for index, url in enumerate(urls, start=1):
+            if len(urls) > 1:
+                print()
+                print(f"[{index}/{len(urls)}] {url}")
+            try:
+                info = download(
+                    url,
+                    quality_key,
+                    folder,
+                    allow_playlist=args.playlist,
+                    cookies_from_browser=cookies_from_browser,
+                    cookie_file=cookie_file,
+                    referer=args.referer,
+                    use_download_archive=use_download_archive,
+                    debug=args.debug,
+                )
+                title = info.get("title", "Video") if isinstance(info, dict) else "Video"
+                add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
+            except Exception as exc:  # noqa: BLE001 - CLI boundary
+                failures += 1
+                print(f"Fehler: {friendly_error(str(exc))}", file=sys.stderr)
 
     if failures:
         print(f"Fertig mit Fehlern: {failures} von {len(urls)} fehlgeschlagen.", file=sys.stderr)
