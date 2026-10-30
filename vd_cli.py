@@ -19,7 +19,7 @@ from page_extractor import EmbeddedMedia, find_embedded_media, referer_headers
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualität", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("Bis 1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
@@ -256,8 +256,14 @@ def friendly_error(raw_error: str) -> str:
     lower = text.lower()
     if "kein eingebettetes video" in lower:
         return text
-    if "drm" in lower:
+    if "drm" in lower and "dpapi" not in lower:
         return "Dieses Video ist kopiergeschuetzt (DRM) und kann nicht heruntergeladen werden."
+    if "dpapi" in lower or "could not copy chrome cookie database" in lower:
+        return (
+            "Die Browser-Cookies koennen nicht gelesen werden (Chrome/Brave/Edge sperren das unter Windows). "
+            "Exportiere stattdessen eine cookies.txt mit der Erweiterung \"Get cookies.txt LOCALLY\" "
+            "und nutze `--cookies PFAD\\zur\\cookies.txt`."
+        )
     if "sign in to confirm" in lower or "bot" in lower or "cookies" in lower:
         return (
             "YouTube blockiert diesen Link oder verlangt eine Browser-Session. "
@@ -502,6 +508,7 @@ def download_url(
     *,
     log: Any = print,
     search_embedded: bool = True,
+    debug_dir: Path | None = None,
 ) -> dict[str, Any] | None:
     """Download ``url``; for unknown pages look for an embedded video stream."""
     if yt_dlp is None:
@@ -515,7 +522,7 @@ def download_url(
             if not search_embedded or not should_try_embedded_media(str(exc)):
                 raise
             log("Diese Seite wird nicht direkt unterstuetzt. Suche nach einem eingebetteten Video...")
-            media = find_embedded_media(downloader, url, log=log)
+            media = find_embedded_media(downloader, url, debug_dir=debug_dir, log=log)
 
     if media is None or not media.media_urls:
         raise RuntimeError(
@@ -553,6 +560,7 @@ def download(
     cookie_file: str | None = None,
     referer: str | None = None,
     use_download_archive: bool = False,
+    debug: bool = False,
 ) -> dict[str, Any] | None:
     if yt_dlp is None:
         raise RuntimeError("yt-dlp ist nicht installiert. Fuehre zuerst `python -m pip install .` aus.")
@@ -567,7 +575,7 @@ def download(
         referer=referer,
         use_download_archive=use_download_archive,
     )
-    return download_url(url, options)
+    return download_url(url, options, debug_dir=folder / "vd-debug" if debug else None)
 
 
 def history_command(args: argparse.Namespace) -> int:
@@ -701,6 +709,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Cookies aus einer cookies.txt-Datei (Netscape-Format) verwenden",
     )
     parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Diagnose speichern (Screenshot und Anfragen des Hintergrund-Browsers) im Ordner vd-debug",
+    )
+    parser.add_argument(
         "--referer",
         metavar="URL",
         help="Seite, auf der das Video eingebettet ist (fuer direkt kopierte .m3u8-Links)",
@@ -790,6 +803,7 @@ def main(argv: list[str] | None = None) -> int:
                 cookie_file=args.cookies,
                 referer=args.referer,
                 use_download_archive=use_download_archive,
+                debug=args.debug,
             )
             title = info.get("title", "Video") if isinstance(info, dict) else "Video"
             add_history_entry(url, title=title, quality_key=quality_key, folder=folder)

@@ -20,6 +20,7 @@ from __future__ import annotations
 import html as html_lib
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urljoin, urlparse
 
@@ -182,11 +183,42 @@ def _playwright_cookies(cookiejar: Any, page_url: str) -> list[dict[str, Any]]:
     return cookies
 
 
+MANIFEST_CONTENT_TYPES = (
+    "application/vnd.apple.mpegurl",
+    "application/x-mpegurl",
+    "audio/mpegurl",
+    "audio/x-mpegurl",
+    "application/dash+xml",
+)
+LOGIN_HINT_PATTERN = re.compile(r"login|anmelden|sign-?in|signin|auth", re.IGNORECASE)
+
+
+def _strip_query(url: str) -> str:
+    return url.split("?", 1)[0]
+
+
+def _launch_browser(playwright: Any, log: Callable[[str], None]) -> Any:
+    """Prefer an installed Edge/Chrome (looks like a normal browser, no download needed)."""
+    errors: list[str] = []
+    for channel in ("msedge", "chrome", None):
+        try:
+            if channel:
+                return playwright.chromium.launch(headless=True, channel=channel)
+            return playwright.chromium.launch(headless=True)
+        except Exception as exc:  # noqa: BLE001 - try the next browser
+            errors.append(f"{channel or 'chromium'}: {str(exc).splitlines()[0]}")
+    raise RuntimeError(
+        "Kein Browser fuer die Video-Suche gefunden. Installiere Microsoft Edge oder Chrome, "
+        "oder fuehre `python -m playwright install chromium` aus. (" + "; ".join(errors) + ")"
+    )
+
+
 def sniff_media_with_browser(
     page_url: str,
     cookiejar: Any = None,
     *,
-    timeout_seconds: float = 25,
+    timeout_seconds: float = 40,
+    debug_dir: Path | None = None,
     log: Callable[[str], None] = print,
 ) -> EmbeddedMedia | None:
     """Open the page headless and record the video stream it requests."""
@@ -195,50 +227,147 @@ def sniff_media_with_browser(
     except ImportError:
         log(
             "Tipp: Fuer Seiten, die das Video per JavaScript laden, "
-            "`pip install playwright` und `python -m playwright install chromium` ausfuehren."
+            "`python -m pip install playwright` ausfuehren."
         )
         return None
 
     found: list[str] = []
+    request_log: list[str] = []
+    segments_seen = 0
 
-    def on_request(request: Any) -> None:
-        url = request.url
-        if is_media_url(url) and url not in found:
+    def remember(url: str) -> None:
+        if url not in found:
             found.append(url)
 
+    def on_request(request: Any) -> None:
+        nonlocal segments_seen
+        url = request.url
+        if is_media_url(url):
+            remember(url)
+        elif _strip_query(url).lower().endswith((".ts", ".m4s", ".aac")):
+            segments_seen += 1
+
+    def on_response(response: Any) -> None:
+        url = response.url
+        try:
+            content_type = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
+        except Exception:  # noqa: BLE001 - headers may be unavailable
+            content_type = ""
+        if content_type in MANIFEST_CONTENT_TYPES:
+            remember(url)
+        if debug_dir is not None:
+            request_log.append(f"{response.status}  {content_type or '-':<32}  {_strip_query(url)}")
+
+    title = None
+    final_url = page_url
     log("Oeffne die Seite im Hintergrund-Browser und suche den Videostream...")
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        browser = _launch_browser(playwright, log)
         try:
-            context = browser.new_context()
+            user_agent = browser.new_page().evaluate("navigator.userAgent").replace("HeadlessChrome", "Chrome")
+            context = browser.new_context(
+                user_agent=user_agent,
+                viewport={"width": 1600, "height": 900},
+                locale="de-DE",
+            )
             cookies = _playwright_cookies(cookiejar, page_url)
             if cookies:
                 context.add_cookies(cookies)
+            log(f"Login-Cookies fuer den Hintergrund-Browser: {len(cookies)}")
+            context.on("request", on_request)
+            context.on("response", on_response)
             page = context.new_page()
-            page.on("request", on_request)
             page.goto(page_url, wait_until="domcontentloaded", timeout=int(timeout_seconds * 1000))
-            title = None
-            try:
-                title = page.title()
-            except Exception:  # noqa: BLE001 - title is optional
-                pass
+
+            def has_manifest() -> bool:
+                return any(_media_rank(u)[0] < 2 for u in found)
 
             waited = 0.0
             step = 0.5
-            while waited < timeout_seconds and not any(_media_rank(u)[0] < 2 for u in found):
-                if waited in (2.0, 6.0):
+            while waited < timeout_seconds and not has_manifest():
+                if waited in (3.0, 10.0, 20.0):
                     _try_start_playback(page)
+                if waited in (6.0, 14.0, 26.0):
+                    _click_player(page)
                 page.wait_for_timeout(int(step * 1000))
                 waited += step
             # Give the player a moment to request the master playlist too.
             if found:
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(1500)
+
+            try:
+                title = page.title()
+                final_url = page.url
+            except Exception:  # noqa: BLE001 - optional information
+                pass
+            if debug_dir is not None:
+                _write_debug(debug_dir, page, request_log, found, final_url, len(cookies), log)
         finally:
             browser.close()
 
     if not found:
+        if final_url.split("#")[0].rstrip("/") != page_url.split("#")[0].rstrip("/"):
+            log(f"Der Hintergrund-Browser wurde weitergeleitet auf: {_strip_query(final_url)}")
+            if LOGIN_HINT_PATTERN.search(final_url):
+                log("Das sieht nach einer Login-Seite aus: die Cookies sind abgelaufen oder fehlen.")
+        if segments_seen:
+            log(f"Es wurden {segments_seen} Video-Teile geladen, aber keine Playlist erkannt.")
         return None
     return EmbeddedMedia(page_url=page_url, title=clean_title(title), media_urls=sort_media_urls(found))
+
+
+def _write_debug(
+    debug_dir: Path,
+    page: Any,
+    request_log: list[str],
+    found: list[str],
+    final_url: str,
+    cookie_count: int,
+    log: Callable[[str], None],
+) -> None:
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        page.screenshot(path=str(debug_dir / "browser.png"), full_page=False)
+    except Exception:  # noqa: BLE001 - debugging is best effort
+        pass
+    frames = []
+    for frame in page.frames:
+        frames.append(_strip_query(frame.url))
+    summary = [
+        f"Endgueltige Adresse: {_strip_query(final_url)}",
+        f"Login-Cookies uebergeben: {cookie_count}",
+        f"Gefundene Streams: {len(found)}",
+        *[f"  {_strip_query(url)}" for url in found],
+        f"Frames ({len(frames)}):",
+        *[f"  {url}" for url in frames],
+        "",
+        f"Anfragen ({len(request_log)}), Status / Typ / Adresse ohne Parameter:",
+        *request_log,
+    ]
+    (debug_dir / "requests.txt").write_text("\n".join(summary), encoding="utf-8")
+    log(f"Diagnose gespeichert in: {debug_dir}")
+
+
+def _click_player(page: Any) -> None:
+    """Click the middle of the biggest video-like element (players often need a click)."""
+    script = """
+    () => {
+      const items = [...document.querySelectorAll('video, iframe, [class*="player" i], [id*="player" i]')]
+        .map(el => ({el, r: el.getBoundingClientRect()}))
+        .filter(({r}) => r.width > 200 && r.height > 120);
+      items.sort((a, b) => b.r.width * b.r.height - a.r.width * a.r.height);
+      if (!items.length) return null;
+      items[0].el.scrollIntoView({block: 'center'});
+      const r = items[0].el.getBoundingClientRect();
+      return {x: r.left + r.width / 2, y: r.top + r.height / 2};
+    }
+    """
+    try:
+        point = page.evaluate(script)
+        if point:
+            page.mouse.click(point["x"], point["y"])
+    except Exception:  # noqa: BLE001 - best effort
+        pass
 
 
 def _try_start_playback(page: Any) -> None:
@@ -266,6 +395,7 @@ def find_embedded_media(
     page_url: str,
     *,
     use_browser: bool = True,
+    debug_dir: Path | None = None,
     log: Callable[[str], None] = print,
 ) -> EmbeddedMedia | None:
     """Look for an embedded video on ``page_url`` using a yt-dlp ``YoutubeDL``."""
@@ -277,6 +407,10 @@ def find_embedded_media(
     except Exception as exc:  # noqa: BLE001 - try the browser fallback anyway
         log(f"Seite konnte nicht gelesen werden: {exc}")
 
+    if page_html and debug_dir is not None:
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        (debug_dir / "page.html").write_text(page_html, encoding="utf-8")
+
     if page_html:
         media_urls = find_media_in_html(page_html, page_url)
         if media_urls:
@@ -285,7 +419,13 @@ def find_embedded_media(
 
     if not use_browser:
         return None
-    media = sniff_media_with_browser(page_url, getattr(downloader, "cookiejar", None), log=log)
+    try:
+        media = sniff_media_with_browser(
+            page_url, getattr(downloader, "cookiejar", None), debug_dir=debug_dir, log=log
+        )
+    except Exception as exc:  # noqa: BLE001 - report and fall through to "nothing found"
+        log(f"Hintergrund-Browser fehlgeschlagen: {exc}")
+        media = None
     if media and not media.title and page_html:
         media.title = extract_page_title(page_html)
     return media

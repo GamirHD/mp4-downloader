@@ -120,6 +120,11 @@ class VdCliSharedStateTests(unittest.TestCase):
         expected = datetime.fromisoformat(value).astimezone().strftime("%Y-%m-%d %H:%M")
         self.assertEqual(vd_cli.format_history_timestamp(value), expected)
 
+    def test_dpapi_error_points_to_cookie_file(self) -> None:
+        message = vd_cli.friendly_error("ERROR: Failed to decrypt with DPAPI. See https://github.com/yt-dlp/yt-dlp/issues/10927")
+        self.assertIn("cookies.txt", message)
+        self.assertNotIn("DRM", message)
+
     def test_cookie_error_points_to_cli_cookie_controls(self) -> None:
         message = vd_cli.friendly_error("Sign in to confirm you're not a bot. Use cookies.")
 
