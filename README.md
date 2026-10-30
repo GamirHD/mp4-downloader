@@ -287,6 +287,14 @@ Windows:
 .\build-windows-gui.ps1
 ```
 
+## Releases
+
+Releases are created automatically: when a new `version` in `pyproject.toml` reaches `main`
+and there is no release with that tag yet, GitHub Actions creates the release `vX.Y.Z` and
+attaches the Windows, Linux and macOS builds. Optional release notes can be put in
+`.github/release-notes/vX.Y.Z.md`; otherwise GitHub generates them from the merged pull requests.
+Publishing a release manually on GitHub still works too.
+
 ## Notes
 
 The app uses `yt-dlp`. Some YouTube videos may fail when YouTube requires login, cookies, or bot verification. Running the app locally on your own PC is usually more reliable than running it on a VPS.
