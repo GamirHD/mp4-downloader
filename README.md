@@ -206,6 +206,7 @@ Optional hidden-browser search for JavaScript players:
 
 ```bash
 python -m pip install playwright
+# only needed if neither Microsoft Edge nor Chrome is installed:
 python -m playwright install chromium
 ```
 
@@ -215,6 +216,10 @@ and pass the page as referer:
 ```bash
 vd "https://cdn.example.com/.../master.m3u8?token=..." --referer "https://example.com/kurse/mein-kurs/video-1/"
 ```
+
+If no video is found, run again with `--debug`: a screenshot and the list of requests of the
+hidden browser are saved to `vd-debug` in the download folder. The hidden browser uses an
+installed Microsoft Edge or Chrome when available.
 
 DRM-protected (copy-protected) videos are not supported.
 
