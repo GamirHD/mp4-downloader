@@ -41,7 +41,29 @@ def has_saved_login(profile_dir: Path) -> bool:
     return (profile_dir / COOKIES_FILE).is_file()
 
 
-def _save_cookies(profile_dir: Path, cookies: list[dict[str, Any]]) -> None:
+def _load_cookies(profile_dir: Path) -> list[dict[str, Any]]:
+    path = profile_dir / COOKIES_FILE
+    if not path.is_file():
+        return []
+    try:
+        cookies = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(cookies, list):
+        return []
+    return [cookie for cookie in cookies if isinstance(cookie, dict)]
+
+
+def _cookie_key(cookie: dict[str, Any]) -> tuple[str, str, str]:
+    return (str(cookie.get("name")), str(cookie.get("domain")).lower(), str(cookie.get("path") or "/"))
+
+
+def _save_cookies(profile_dir: Path, cookies: list[dict[str, Any]], *, merge: bool = True) -> None:
+    """Store cookies; logins of other websites stay untouched when merging."""
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    if merge:
+        new_keys = {_cookie_key(cookie) for cookie in cookies}
+        cookies = [c for c in _load_cookies(profile_dir) if _cookie_key(c) not in new_keys] + list(cookies)
     path = profile_dir / COOKIES_FILE
     temp_path = path.with_suffix(".tmp")
     temp_path.write_text(json.dumps(cookies), encoding="utf-8")
@@ -130,16 +152,47 @@ def interactive_login(url: str, profile_dir: Path, *, log: Callable[[str], None]
 
 def saved_cookies_for(url: str, profile_dir: Path) -> list[dict[str, Any]]:
     """Return the saved cookies that would be sent to ``url``."""
-    path = profile_dir / COOKIES_FILE
-    if not path.is_file():
-        return []
-    try:
-        cookies = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    if not isinstance(cookies, list):
-        return []
-    return [cookie for cookie in cookies if isinstance(cookie, dict) and _cookie_matches(cookie, url)]
+    return [cookie for cookie in _load_cookies(profile_dir) if _cookie_matches(cookie, url)]
+
+
+def site_of(value: str) -> str:
+    """Normalize a link or domain to a site name like "example.com"."""
+    text = value.strip().lower()
+    host = urlparse(text).hostname if "://" in text else text.split("/", 1)[0]
+    host = (host or "").lstrip(".")
+    return host[4:] if host.startswith("www.") else host
+
+
+def saved_sites(profile_dir: Path) -> list[tuple[str, int]]:
+    """Websites with saved cookies and how many cookies each has."""
+    counts: dict[str, int] = {}
+    now = time.time()
+    for cookie in _load_cookies(profile_dir):
+        expires = cookie.get("expires")
+        if isinstance(expires, (int, float)) and 0 < expires < now:
+            continue
+        site = site_of(str(cookie.get("domain") or ""))
+        if site:
+            counts[site] = counts.get(site, 0) + 1
+    return sorted(counts.items())
+
+
+def delete_site_login(profile_dir: Path, site: str) -> int:
+    """Remove the saved cookies of one website. Returns how many were removed."""
+    target = site_of(site)
+    if not target:
+        return 0
+    cookies = _load_cookies(profile_dir)
+
+    def belongs(cookie: dict[str, Any]) -> bool:
+        domain = site_of(str(cookie.get("domain") or ""))
+        return domain == target or domain.endswith(f".{target}")
+
+    remaining = [cookie for cookie in cookies if not belongs(cookie)]
+    removed = len(cookies) - len(remaining)
+    if removed:
+        _save_cookies(profile_dir, remaining, merge=False)
+    return removed
 
 
 def cookies_to_netscape(cookies: list[dict[str, Any]]) -> str:

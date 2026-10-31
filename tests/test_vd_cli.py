@@ -569,6 +569,67 @@ class BrowserLoginTests(unittest.TestCase):
         self.assertFalse(Path(seen["path"]).exists())
 
 
+    def test_logins_of_several_sites_are_kept_listed_and_removed_separately(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            profile = Path(temp)
+            browser_login._save_cookies(profile, [{"name": "s", "value": "1", "domain": "kurse.example.com", "path": "/"}])
+            browser_login._save_cookies(profile, [{"name": "t", "value": "2", "domain": ".vimeo.com", "path": "/"}])
+            browser_login._save_cookies(profile, [{"name": "s", "value": "new", "domain": "kurse.example.com", "path": "/"}])
+
+            self.assertEqual(browser_login.saved_sites(profile), [("kurse.example.com", 1), ("vimeo.com", 1)])
+            value = browser_login.saved_cookies_for("https://kurse.example.com/a", profile)[0]["value"]
+            self.assertEqual(value, "new")
+
+            self.assertEqual(browser_login.delete_site_login(profile, "https://www.vimeo.com/123"), 1)
+            self.assertEqual(browser_login.saved_sites(profile), [("kurse.example.com", 1)])
+
+    def test_login_might_help_skips_drm_and_tool_errors(self) -> None:
+        self.assertTrue(vd_cli.login_might_help("ERROR: HTTP Error 403: Forbidden"))
+        self.assertTrue(vd_cli.login_might_help("This video is only available for registered users"))
+        self.assertTrue(vd_cli.login_might_help("Kein eingebettetes Video auf der Seite gefunden. Falls die Seite einen Login braucht"))
+        self.assertFalse(vd_cli.login_might_help("ERROR: This video is DRM protected"))
+        self.assertFalse(vd_cli.login_might_help("ffmpeg not found"))
+        self.assertFalse(vd_cli.login_might_help("HTTP Error 404: Not Found"))
+
+    def test_cli_offers_login_and_retries_after_failure(self) -> None:
+        calls: list[str | None] = []
+
+        def fake_download(url, quality_key, folder, **kwargs):
+            calls.append(kwargs.get("cookie_file"))
+            if len(calls) == 1:
+                raise RuntimeError("Kein eingebettetes Video auf der Seite gefunden. Falls die Seite einen Login braucht ...")
+            return {"title": "Video"}
+
+        def fake_login(url, profile_dir, **kwargs):
+            browser_login._save_cookies(profile_dir, [{"name": "login", "value": "v", "domain": "example.com", "path": "/"}])
+            return 1
+
+        with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
+            with mock.patch.object(vd_cli, "download", side_effect=fake_download), mock.patch.object(
+                vd_cli, "can_use_interactive_menu", return_value=True
+            ), mock.patch.object(vd_cli, "ask_yes_no", return_value=True) as ask_mock, mock.patch.object(
+                vd_cli, "interactive_login", side_effect=fake_login
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                code = vd_cli.main(["https://example.com/kurse/x/", "-q", "best"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 2)
+        self.assertIsNone(calls[0])
+        self.assertIsNotNone(calls[1])
+        self.assertIn("example.com", ask_mock.call_args.args[0])
+
+    def test_cli_does_not_prompt_for_drm_or_without_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
+            for error, interactive in (("This video is DRM protected", True), ("HTTP Error 403: Forbidden", False)):
+                with mock.patch.object(vd_cli, "download", side_effect=RuntimeError(error)), mock.patch.object(
+                    vd_cli, "can_use_interactive_menu", return_value=interactive
+                ), mock.patch.object(vd_cli, "ask_yes_no") as ask_mock, redirect_stdout(io.StringIO()), redirect_stderr(
+                    io.StringIO()
+                ):
+                    self.assertEqual(vd_cli.main(["https://example.com/x/", "-q", "best"]), 1)
+                ask_mock.assert_not_called()
+
+
 def _ensure_dir(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path

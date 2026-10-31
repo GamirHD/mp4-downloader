@@ -10,7 +10,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
-from browser_login import BrowserLoginError, interactive_login
+from browser_login import BrowserLoginError, interactive_login, saved_cookies_for, site_of
 from cookie_input import CookieInputError, cookies_text_to_netscape, temporary_cookie_file
 from vd_cli import (
     BROWSER_CHOICES,
@@ -18,6 +18,7 @@ from vd_cli import (
     add_history_entry,
     build_ydl_options,
     download_url,
+    login_might_help,
     login_profile_dir,
     saved_login_cookie_text,
     extract_urls_from_text,
@@ -624,6 +625,14 @@ class DownloaderApp(tk.Tk):
         )
         self.download_thread.start()
 
+    def _ask_from_worker(self, question: str) -> bool:
+        """Ask a yes/no question on the GUI thread and wait for the answer."""
+        answered = threading.Event()
+        answer = [False]
+        self.messages.put(("ask_yes_no", (question, answered, answer)))
+        answered.wait()
+        return answer[0]
+
     def _start_login(self) -> None:
         if self.download_thread and self.download_thread.is_alive():
             return
@@ -727,14 +736,38 @@ class DownloaderApp(tk.Tk):
                 self.messages.put(("log", f"[{index}/{len(urls)}] {url}"))
                 self.messages.put(("status", f"Download {index} von {len(urls)} läuft..."))
             try:
-                saved = None
-                if cookie_file is None and cookies_from_browser is None:
-                    saved = saved_login_cookie_text(url, log=log)
-                if saved:
-                    with temporary_cookie_file(saved) as saved_file:
-                        info = download_url(url, options_for(str(saved_file)), log=log)
-                else:
-                    info = download_url(url, options_for(cookie_file), log=log)
+                use_saved_login = cookie_file is None and cookies_from_browser is None
+
+                def attempt(url: str = url, use_saved_login: bool = use_saved_login) -> Any:
+                    saved = saved_login_cookie_text(url, log=log) if use_saved_login else None
+                    if saved:
+                        with temporary_cookie_file(saved) as saved_file:
+                            return download_url(url, options_for(str(saved_file)), log=log)
+                    return download_url(url, options_for(cookie_file), log=log)
+
+                try:
+                    info = attempt()
+                except DownloadCancelled:
+                    raise
+                except Exception as first_error:  # noqa: BLE001 - maybe a login helps
+                    if not (use_saved_login and login_might_help(str(first_error))):
+                        raise
+                    log(f"Fehler: {friendly_error(str(first_error))}")
+                    site = site_of(url)
+                    already = bool(saved_cookies_for(url, login_profile_dir()))
+                    question = (
+                        f"Der gespeicherte Login für {site} ist vielleicht abgelaufen.\n\nNeu einloggen und erneut versuchen?"
+                        if already
+                        else f"Vielleicht braucht {site} einen Login.\n\n"
+                        "Jetzt im Browserfenster einloggen (danach Fenster schließen) und erneut versuchen?"
+                    )
+                    if not self._ask_from_worker(question):
+                        raise
+                    self.messages.put(("status", "Browserfenster offen: einloggen und Fenster schließen..."))
+                    if not interactive_login(url, login_profile_dir(), log=log):
+                        raise
+                    log(f"Login für {site} gespeichert. Neuer Versuch...")
+                    info = attempt()
                 title = info.get("title", "Video") if isinstance(info, dict) else "Video"
                 add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
                 self.messages.put(("history_changed", None))
@@ -769,6 +802,12 @@ class DownloaderApp(tk.Tk):
                 self.progress_var.set(float(payload))
             elif message_type == "status":
                 self.status_var.set(str(payload))
+            elif message_type == "ask_yes_no":
+                question, answered, answer = payload
+                try:
+                    answer[0] = messagebox.askyesno(APP_TITLE, question)
+                finally:
+                    answered.set()
             elif message_type == "login_done":
                 self.status_var.set(str(payload))
                 try:
