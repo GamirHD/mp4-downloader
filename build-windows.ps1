@@ -9,11 +9,11 @@ python -m pip install --upgrade --quiet pyinstaller -r requirements.txt playwrig
 Remove-Item -Recurse -Force dist, build, dist-cli -ErrorAction SilentlyContinue
 
 # Programm mit Oberfläche (ohne Konsolenfenster)
-python -m PyInstaller --noconfirm --onedir --windowed --name mp4-downloader --collect-all playwright run.py
+python -m PyInstaller --noconfirm --onedir --windowed --name mp4-downloader --icon assets\app.ico --collect-all playwright run.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller (GUI) fehlgeschlagen" }
 
 # Befehl vd (Konsole), danach in denselben Ordner legen
-python -m PyInstaller --noconfirm --onedir --console --name vd --collect-all playwright --distpath dist-cli vd_main.py
+python -m PyInstaller --noconfirm --onedir --console --name vd --icon assets\app.ico --collect-all playwright --distpath dist-cli vd_main.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller (vd) fehlgeschlagen" }
 Copy-Item dist-cli\vd\vd.exe dist\mp4-downloader\ -Force
 Copy-Item dist-cli\vd\_internal\* dist\mp4-downloader\_internal\ -Recurse -Force

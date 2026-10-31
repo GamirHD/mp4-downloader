@@ -81,32 +81,69 @@ jobs:
         shell: pwsh
         run: ./build-windows.ps1
 
-      - name: Test installer (install, vd, uninstall)
+      - name: Test installer (install, vd, Apps entry)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $app = Join-Path $env:LOCALAPPDATA "Programs\mp4-downloader"
           $p = Start-Process dist\mp4-downloader-setup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Setup exit code $($p.ExitCode)" }
-          if (-not (Test-Path "$app\vd.exe")) { throw "vd.exe fehlt" }
-          if (-not (Test-Path "$app\mp4-downloader.exe")) { throw "GUI fehlt" }
+          if (-not (Test-Path "$app\vd.exe")) { throw "vd.exe missing" }
+          if (-not (Test-Path "$app\mp4-downloader.exe")) { throw "window app missing" }
           $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-          if (($userPath -split ";") -notcontains $app) { throw "vd nicht im PATH: $userPath" }
+          if (($userPath -split ";") -notcontains $app) { throw "vd not in PATH: $userPath" }
           $key = Get-ChildItem HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall |
-            Where-Object { $_.GetValue("DisplayName") -eq "Video-Downloader" }
-          if (-not $key) { throw "Kein Eintrag unter Apps" }
-          Write-Host "Apps-Eintrag: $($key.GetValue('DisplayName')) $($key.GetValue('DisplayVersion'))"
-          $start = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Video-Downloader\Video-Downloader.lnk"
-          if (-not (Test-Path $start)) { throw "Startmenü-Eintrag fehlt" }
+            Where-Object { $_.GetValue("DisplayName") -eq "Video Downloader" }
+          if (-not $key) { throw "No entry under Apps" }
+          Write-Host "Apps entry: $($key.GetValue('DisplayName')) $($key.GetValue('DisplayVersion'))"
+          $start = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Video Downloader\Video Downloader.lnk"
+          if (-not (Test-Path $start)) { throw "Start menu entry missing" }
           & "$app\vd.exe" --version
           & "$app\vd.exe" selftest
-          if ($LASTEXITCODE -ne 0) { throw "vd selftest fehlgeschlagen" }
+          if ($LASTEXITCODE -ne 0) { throw "vd selftest failed" }
+
+      - name: Screenshots of the window app
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          $app = Join-Path $env:LOCALAPPDATA "Programs\mp4-downloader"
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          New-Item -ItemType Directory -Force screenshots | Out-Null
+          function Shot([string]$Name) {
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save("screenshots\$Name.png")
+          }
+          foreach ($lang in @("en", "de")) {
+            & "$app\vd.exe" settings --language $lang | Out-Null
+            $gui = Start-Process "$app\mp4-downloader.exe" -PassThru
+            Start-Sleep -Seconds 10
+            Shot "gui-$lang"
+            Stop-Process -Id $gui.Id -Force
+            Start-Sleep -Seconds 2
+          }
+          & "$app\vd.exe" settings --language en | Out-Null
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git checkout --orphan ci-screenshots
+          git rm -rq --cached .
+          git add -f screenshots/*.png
+          git commit -qm "Screenshots for ${{ github.sha }}"
+          git push -qf origin ci-screenshots
+
+      - name: Test uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $app = Join-Path $env:LOCALAPPDATA "Programs\mp4-downloader"
           $p = Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait -PassThru
           Start-Sleep -Seconds 3
-          if (Test-Path "$app\vd.exe") { throw "Deinstallation hat vd.exe nicht entfernt" }
+          if (Test-Path "$app\vd.exe") { throw "Uninstall did not remove vd.exe" }
           $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-          if (($userPath -split ";") -contains $app) { throw "PATH-Eintrag nicht entfernt" }
-          Write-Host "Installer-Test erfolgreich."
+          if (($userPath -split ";") -contains $app) { throw "PATH entry not removed" }
+          Write-Host "Installer test passed."
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -121,7 +158,8 @@ jobs:
         run: gh release upload "${{ needs.prepare-release.outputs.tag }}" "dist/mp4-downloader-setup.exe" --clobber
 
   unix:
-    name: Build ${{ matrix.label }} app
+    # Linux and macOS install with install.sh (one command), so no files are published for them.
+    name: Install test ${{ matrix.label }}
     needs: prepare-release
     if: needs.prepare-release.outputs.build == 'true'
     runs-on: ${{ matrix.os }}
@@ -131,10 +169,8 @@ jobs:
         include:
           - os: ubuntu-latest
             label: Linux
-            release_name: mp4-downloader-linux
           - os: macos-latest
             label: macOS
-            release_name: mp4-downloader-macos
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -146,21 +182,23 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Build app
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --upgrade pyinstaller -r requirements.txt
-          python -m PyInstaller --onefile --name mp4-downloader run.py
-          mv dist/mp4-downloader "dist/${{ matrix.release_name }}"
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.release_name }}
-          path: dist/${{ matrix.release_name }}
-
-      - name: Attach app to release
-        if: needs.prepare-release.outputs.tag != ''
+      - name: Install, test and uninstall
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ needs.prepare-release.outputs.tag }}" "dist/${{ matrix.release_name }}" --clobber
+          VD_PACKAGE: ${{ github.workspace }}
+        run: |
+          set -e
+          bash install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          vd --version
+          vd selftest
+          test -x "$HOME/.local/bin/vd-gui"
+          if [ "$(uname -s)" = "Darwin" ]; then
+            test -x "$HOME/Applications/Video Downloader.app/Contents/MacOS/video-downloader"
+          else
+            grep -q "Name=Video Downloader" "$HOME/.local/share/applications/mp4-downloader.desktop"
+          fi
+          bash uninstall.sh
+          test ! -e "$HOME/.local/bin/vd"
+          test ! -e "$HOME/.local/share/applications/mp4-downloader.desktop"
+          test ! -e "$HOME/Applications/Video Downloader.app"
+          echo "Install test passed."

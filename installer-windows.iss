@@ -1,10 +1,10 @@
-﻿; Windows-Installer: Programm mit Oberfläche + Befehl "vd" in einem Paket.
-; Bauen mit build-windows.ps1 (Version per /DMyAppVersion=x.y.z).
+﻿; Windows installer: window app + command "vd" in one package (English and German).
+; Build with build-windows.ps1 (version via /DMyAppVersion=x.y.z).
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
 #endif
-#define MyAppName "Video-Downloader"
+#define MyAppName "Video Downloader"
 #define MyAppPublisher "GamirHD"
 #define MyAppExeName "mp4-downloader.exe"
 
@@ -15,7 +15,7 @@ AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL=https://github.com/GamirHD/mp4-downloader
-; Ohne Administratorrechte installieren (nach %LOCALAPPDATA%\Programs)
+; Install without administrator rights (to %LOCALAPPDATA%\Programs)
 PrivilegesRequired=lowest
 DefaultDirName={autopf}\mp4-downloader
 DefaultGroupName={#MyAppName}
@@ -24,6 +24,7 @@ DisableDirPage=yes
 DisableReadyPage=yes
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile=assets\app.ico
 ChangesEnvironment=yes
 CloseApplications=yes
 OutputDir=dist
@@ -31,9 +32,19 @@ OutputBaseFilename=mp4-downloader-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+ShowLanguageDialog=no
 
 [Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
+
+[CustomMessages]
+english.RemovingOld=Removing old version...
+german.RemovingOld=Entferne alte Version...
+english.InstallingFfmpeg=Installing ffmpeg...
+german.InstallingFfmpeg=Installiere ffmpeg...
+english.DeleteData=Also delete settings, download history and saved logins?
+german.DeleteData=Sollen auch Einstellungen, Download-Verlauf und gespeicherte Logins gelöscht werden?
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -42,22 +53,25 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "dist\mp4-downloader\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [InstallDelete]
-; Programmdateien einer älteren Version entfernen, damit nichts Veraltetes liegen bleibt
+; Remove program files of an older version so nothing outdated is left behind
 Type: filesandordirs; Name: "{app}\_internal"
-; Reste der früheren Installation über install.ps1/pip
+; Leftovers of the earlier installation via install.ps1/pip
 Type: filesandordirs; Name: "{localappdata}\mp4-downloader"
+; Shortcuts of version 1.1-1.3 (named "Video-Downloader")
+Type: filesandordirs; Name: "{userprograms}\Video-Downloader"
+Type: files; Name: "{userdesktop}\Video-Downloader.lnk"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Registry]
-; Befehl "vd" in jedem neuen Terminal verfügbar machen
+; Make the command "vd" available in every new terminal
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Check: NeedsAddPath(ExpandConstant('{app}'))
 
 [Run]
-Filename: "{cmd}"; Parameters: "/C python -m pip uninstall -y mp4-downloader"; StatusMsg: "Entferne alte Version..."; Flags: runhidden waituntilterminated; Check: HasOldPipVersion
-Filename: "{cmd}"; Parameters: "/C winget install --id Gyan.FFmpeg --exact --source winget --silent --accept-package-agreements --accept-source-agreements"; StatusMsg: "Installiere ffmpeg..."; Flags: runhidden waituntilterminated; Check: NeedsFfmpeg
+Filename: "{cmd}"; Parameters: "/C python -m pip uninstall -y mp4-downloader"; StatusMsg: "{cm:RemovingOld}"; Flags: runhidden waituntilterminated; Check: HasOldPipVersion
+Filename: "{cmd}"; Parameters: "/C winget install --id Gyan.FFmpeg --exact --source winget --silent --accept-package-agreements --accept-source-agreements"; StatusMsg: "{cm:InstallingFfmpeg}"; Flags: runhidden waituntilterminated; Check: NeedsFfmpeg
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
@@ -117,9 +131,7 @@ begin
   begin
     RemoveFromPath(ExpandConstant('{app}'));
     DataDir := ExpandConstant('{userappdata}\mp4-downloader');
-    if DirExists(DataDir) and (SuppressibleMsgBox(
-      'Sollen auch Einstellungen, Download-Verlauf und gespeicherte Logins gelöscht werden?',
-      mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES) then
+    if DirExists(DataDir) and (SuppressibleMsgBox(CustomMessage('DeleteData'), mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES) then
       DelTree(DataDir, True, True, True);
   end;
 end;

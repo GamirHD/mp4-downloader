@@ -158,8 +158,6 @@ def launch_headless(playwright: Any) -> tuple[Any, BrowserChoice]:
 
 
 def no_browser_message(errors: list[str]) -> str:
-    return (
-        "Es konnte kein Browser gestartet werden. Installiere Brave, Chrome oder Microsoft Edge. ("
-        + "; ".join(errors)
-        + ")"
-    )
+    from i18n import t
+
+    return t("no_browser", errors="; ".join(errors))

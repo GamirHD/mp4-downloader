@@ -25,6 +25,7 @@ from typing import Any, Callable
 from urllib.parse import urljoin, urlparse
 
 from browsers import launch_headless
+from i18n import t
 from site_auth import Credentials, playwright_http_credentials
 
 MEDIA_URL_PATTERN = re.compile(
@@ -203,7 +204,7 @@ class LoginRequired(RuntimeError):
     """The page shows a login form instead of the video."""
 
     def __init__(self) -> None:
-        super().__init__("Die Seite zeigt eine Login-Seite statt des Videos.")
+        super().__init__(t("login_page_shown"))
 
 
 def looks_like_login_page(page_html: str, final_url: str = "") -> bool:
@@ -245,7 +246,7 @@ def sniff_media_with_browser(
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        log("Playwright fehlt (für Seiten mit eigenem Video-Player). Behebung: vd update")
+        log(t("playwright_missing"))
         return None
 
     found: list[str] = []
@@ -295,7 +296,7 @@ def sniff_media_with_browser(
             if cookies:
                 context.add_cookies(cookies)
             if verbose:
-                log(f"Login-Cookies für den Hintergrund-Browser: {len(cookies)}")
+                log(f"Login cookies for the background browser: {len(cookies)}")
             context.on("request", on_request)
             context.on("response", on_response)
             page = context.new_page()
@@ -336,11 +337,11 @@ def sniff_media_with_browser(
 
     if not found:
         if verbose and final_url.split("#")[0].rstrip("/") != page_url.split("#")[0].rstrip("/"):
-            log(f"Der Hintergrund-Browser wurde weitergeleitet auf: {_strip_query(final_url)}")
+            log(f"The background browser was redirected to: {_strip_query(final_url)}")
             if LOGIN_HINT_PATTERN.search(final_url):
-                log("Das sieht nach einer Login-Seite aus: die Cookies sind abgelaufen oder fehlen.")
+                log("This looks like a login page: cookies are missing or expired.")
         if verbose and segments_seen:
-            log(f"Es wurden {segments_seen} Video-Teile geladen, aber keine Playlist erkannt.")
+            log(f"{segments_seen} video segments were loaded, but no playlist was recognized.")
         if login_page or looks_like_login_page("", final_url):
             raise LoginRequired()
         return None
@@ -372,18 +373,18 @@ def _write_debug(
     for frame in page.frames:
         frames.append(_strip_query(frame.url))
     summary = [
-        f"Endgueltige Adresse: {_strip_query(final_url)}",
-        f"Login-Cookies uebergeben: {cookie_count}",
-        f"Gefundene Streams: {len(found)}",
+        f"Final address: {_strip_query(final_url)}",
+        f"Login cookies passed: {cookie_count}",
+        f"Streams found: {len(found)}",
         *[f"  {_strip_query(url)}" for url in found],
         f"Frames ({len(frames)}):",
         *[f"  {url}" for url in frames],
         "",
-        f"Anfragen ({len(request_log)}), Status / Typ / Adresse ohne Parameter:",
+        f"Requests ({len(request_log)}), status / type / address without parameters:",
         *request_log,
     ]
     (debug_dir / "requests.txt").write_text("\n".join(summary), encoding="utf-8")
-    log(f"Diagnose gespeichert in: {debug_dir}")
+    log(f"Diagnostics saved to: {debug_dir}")
 
 
 def _click_player(page: Any) -> None:
@@ -447,7 +448,7 @@ def find_embedded_media(
         page_html = response.read().decode(charset or "utf-8", errors="replace")
     except Exception as exc:  # noqa: BLE001 - try the browser fallback anyway
         if debug_dir is not None:
-            log(f"Seite konnte nicht gelesen werden: {exc}")
+            log(f"Could not read the page: {exc}")
 
     if page_html and debug_dir is not None:
         debug_dir.mkdir(parents=True, exist_ok=True)
@@ -473,7 +474,7 @@ def find_embedded_media(
     except LoginRequired:
         raise
     except Exception as exc:  # noqa: BLE001 - report and fall through to "nothing found"
-        log(f"Die Video-Suche im Hintergrund-Browser ist fehlgeschlagen: {exc}")
+        log(t("browser_search_failed", error=exc))
         media = None
     if media and not media.title and page_html:
         media.title = extract_page_title(page_html)

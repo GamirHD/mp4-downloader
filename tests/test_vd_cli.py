@@ -10,10 +10,22 @@ from pathlib import Path
 from unittest import mock
 
 import browser_login
+import i18n
 import browsers
 import page_extractor
 import site_auth
 import vd_cli
+
+
+def setUpModule() -> None:
+    # Most assertions check the German texts; English (the default) is tested in LanguageTests.
+    os.environ["VD_LANG"] = "de"
+    i18n.set_language(None)
+
+
+def tearDownModule() -> None:
+    os.environ.pop("VD_LANG", None)
+    i18n.set_language(None)
 
 
 class ConfigTestCase(unittest.TestCase):
@@ -34,7 +46,27 @@ class SettingsAndHistoryTests(ConfigTestCase):
 
         vd_cli.save_settings({"download_dir": str(self.folder), "quality": "720p", "use_download_archive": True})
 
-        self.assertEqual(vd_cli.load_settings(), {"download_dir": str(self.folder), "quality": "720p"})
+        self.assertEqual(vd_cli.load_settings(), {"download_dir": str(self.folder), "quality": "720p", "language": "en"})
+
+    def test_language_setting_switches_texts(self) -> None:
+        with mock.patch.dict(os.environ, {"VD_LANG": ""}):
+            i18n.set_language(None)
+            self.assertEqual(i18n.get_language(), "en")
+            self.assertEqual(vd_cli.quality_label("mp3"), "Audio only (MP3)")
+            with redirect_stdout(io.StringIO()) as output:
+                vd_cli.main(["settings", "--language", "de"])
+            self.assertEqual(vd_cli.load_settings()["language"], "de")
+            self.assertEqual(i18n.get_language(), "de")
+            self.assertIn("Sprache:   Deutsch (de)", output.getvalue())
+            self.assertEqual(vd_cli.quality_label("mp3"), "Nur Ton (MP3)")
+            with redirect_stdout(io.StringIO()) as output:
+                vd_cli.main(["settings", "-l", "en"])
+            self.assertIn("Language:  English (en)", output.getvalue())
+        i18n.set_language(None)
+
+    def test_every_message_has_both_languages(self) -> None:
+        for key, entry in i18n.MESSAGES.items():
+            self.assertEqual(set(entry), set(i18n.LANGUAGES), key)
 
     def test_settings_ignore_invalid_values(self) -> None:
         vd_cli.config_path().parent.mkdir(parents=True, exist_ok=True)
@@ -51,7 +83,7 @@ class SettingsAndHistoryTests(ConfigTestCase):
 
         self.assertEqual(vd_cli.load_settings()["quality"], "mp3")
         self.assertTrue(self.folder.is_dir())
-        self.assertIn("Nur Audio", output.getvalue())
+        self.assertIn("Nur Ton", output.getvalue())
 
     def test_history_deduplicates_newest_url_and_caps_entries(self) -> None:
         vd_cli.add_history_entry("https://example.test/1", title="Old", quality_key="720p", folder=self.folder)
