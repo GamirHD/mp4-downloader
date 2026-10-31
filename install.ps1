@@ -1,52 +1,23 @@
-# mp4-downloader installieren:
+# mp4-downloader installieren (Programm mit Oberfläche + Befehl vd):
 #   irm https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.ps1 | iex
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$package = "https://github.com/GamirHD/mp4-downloader/archive/refs/heads/main.zip"
+$setupUrl = "https://github.com/GamirHD/mp4-downloader/releases/latest/download/mp4-downloader-setup.exe"
+$setup = Join-Path $env:TEMP "mp4-downloader-setup.exe"
 
-function Test-Command([string]$Name) {
-    $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
-}
+Write-Host "Lade Video-Downloader..."
+Invoke-WebRequest -Uri $setupUrl -OutFile $setup -UseBasicParsing
 
-function Update-SessionPath {
-    $machine = [Environment]::GetEnvironmentVariable("Path", "Machine")
-    $user = [Environment]::GetEnvironmentVariable("Path", "User")
-    $env:Path = "$machine;$user"
-}
+Write-Host "Installiere (das kann eine Minute dauern)..."
+$process = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+Remove-Item $setup -Force -ErrorAction SilentlyContinue
+if ($process.ExitCode -ne 0) { throw "Installation fehlgeschlagen (Code $($process.ExitCode))." }
 
-function Install-WithWinget([string]$Id, [string]$Command, [string]$Name) {
-    if (Test-Command $Command) { return }
-    if (-not (Test-Command "winget")) {
-        throw "$Name fehlt und winget ist nicht verfügbar. Bitte $Name installieren und das Skript erneut starten."
-    }
-    Write-Host "Installiere $Name..."
-    winget install --id $Id --exact --source winget --silent --accept-package-agreements --accept-source-agreements | Out-Null
-    Update-SessionPath
-}
-
-function Add-ToUserPath([string]$Dir) {
-    if (-not $Dir -or -not (Test-Path $Dir)) { return }
-    $user = [Environment]::GetEnvironmentVariable("Path", "User")
-    $parts = @($user -split ";" | Where-Object { $_ })
-    if ($parts -notcontains $Dir) {
-        [Environment]::SetEnvironmentVariable("Path", (($parts + $Dir) -join ";"), "User")
-    }
-    if (@($env:Path -split ";") -notcontains $Dir) { $env:Path = "$env:Path;$Dir" }
-}
-
-Write-Host "Installiere mp4-downloader (vd)..."
-Install-WithWinget "Python.Python.3.12" "python" "Python"
-Install-WithWinget "Gyan.FFmpeg" "ffmpeg" "ffmpeg"
-
-python -m pip install --upgrade --quiet --disable-pip-version-check $package
-if ($LASTEXITCODE -ne 0) { throw "Installation fehlgeschlagen." }
-
-# Ordner mit vd.exe in den PATH aufnehmen (normale und Benutzer-Installation von pip)
-Add-ToUserPath (python -c "import sysconfig; print(sysconfig.get_path('scripts'))")
-Add-ToUserPath (python -c "import os, sysconfig; print(sysconfig.get_path('scripts', os.name + '_user'))")
+# vd sofort in diesem Fenster nutzbar machen
+$appDir = Join-Path $env:LOCALAPPDATA "Programs\mp4-downloader"
+if (@($env:Path -split ";") -notcontains $appDir) { $env:Path = "$env:Path;$appDir" }
 
 Write-Host ""
-Write-Host "Fertig! Öffne ein neues Terminal und lade ein Video mit:"
+Write-Host "Fertig! Im Startmenü findest du jetzt den 'Video-Downloader'."
+Write-Host "Im Terminal lädst du Videos mit:"
 Write-Host '  vd "https://www.youtube.com/watch?v=..."'
-Write-Host ""
-Write-Host "Hilfe: vd --help    Aktualisieren: vd update"

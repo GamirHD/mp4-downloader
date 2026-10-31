@@ -9,11 +9,16 @@ vd "https://www.youtube.com/watch?v=..."
 
 ## Installation
 
-**Windows** – PowerShell öffnen und einfügen:
+**Windows:** [`mp4-downloader-setup.exe`](https://github.com/GamirHD/mp4-downloader/releases/latest/download/mp4-downloader-setup.exe)
+herunterladen und starten – oder in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.ps1 | iex
 ```
+
+Danach gibt es im Startmenü den **Video-Downloader** (Programm mit Fenster) und im Terminal den
+Befehl **`vd`**. Python wird nicht gebraucht, ffmpeg wird automatisch installiert. Deinstallieren
+geht wie bei jedem Programm über *Einstellungen → Apps → Video-Downloader*.
 
 **Linux / macOS:**
 
@@ -21,8 +26,7 @@ irm https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.ps1 | 
 curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.sh | bash
 ```
 
-Das Skript installiert alles Nötige (unter Windows auch Python und ffmpeg). Danach ein **neues**
-Terminal öffnen. Aktualisieren geht später mit `vd update`.
+Danach ein **neues** Terminal öffnen. Aktualisieren geht später mit `vd update`.
 
 ## Benutzung
 
@@ -69,19 +73,13 @@ auch nicht mit Login. `vd` sagt das dann direkt.
 
 ## Programm mit Oberfläche
 
-Nach der Installation startet `vd-gui` das Programm mit Fenster: Links einfügen, Qualität und Ordner
-wählen, fertig. Login-Abfragen funktionieren dort genauso.
-
-Ohne Python gibt es fertige Programme unter
-[Releases](https://github.com/GamirHD/mp4-downloader/releases/latest)
-(`mp4-downloader-setup.exe` für Windows, außerdem Linux und macOS). Diese Versionen enthalten
-den Hintergrund-Browser nicht; Seiten mit Login oder eigenem Player gehen am besten mit `vd`.
+Unter Windows im Startmenü **Video-Downloader** öffnen (nach einer Installation über Linux/macOS:
+`vd-gui`): Links einfügen, Qualität und Ordner wählen, fertig. Login-Abfragen funktionieren dort
+genauso.
 
 ## Deinstallieren
 
-```powershell
-irm https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/uninstall.ps1 | iex
-```
+Windows: *Einstellungen → Apps → Video-Downloader → Deinstallieren* (entfernt Programm und `vd`).
 
 Linux/macOS: `curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/uninstall.sh | bash`
 
@@ -91,6 +89,9 @@ Linux/macOS: `curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloade
 python -m pip install -e .
 python -m unittest
 ```
+
+Den Windows-Installer baut `build-windows.ps1` (PyInstaller + Inno Setup). Jeder Pull Request baut
+ihn auf einem Windows-Rechner bei GitHub und testet Installation, `vd` und Deinstallation.
 
 Releases entstehen automatisch, sobald eine neue `version` in `pyproject.toml` auf `main` landet
 (optionale Notizen in `.github/release-notes/vX.Y.Z.md`).
