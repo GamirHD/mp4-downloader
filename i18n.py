@@ -19,6 +19,7 @@ _current: str | None = None
 MESSAGES: dict[str, dict[str, str]] = {
     # ------------------------------------------------------------------ qualities
     "quality.best": {"en": "Best quality", "de": "Beste Qualität"},
+    "quality.original": {"en": "Original file (largest)", "de": "Originaldatei (größte)"},
     "quality.1080p": {"en": "Up to 1080p", "de": "Bis 1080p"},
     "quality.720p": {"en": "Up to 720p", "de": "Bis 720p"},
     "quality.480p": {"en": "Up to 480p", "de": "Bis 480p"},

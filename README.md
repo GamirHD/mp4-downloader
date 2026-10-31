@@ -37,10 +37,13 @@ Linux and macOS need Python 3 and ffmpeg. Update later with `vd update`.
 | --- | --- |
 | `vd "LINK"` | Download the video as MP4 (default: up to 1080p) |
 | `vd -a "LINK"` | Audio only as MP3 |
-| `vd -q 720p "LINK"` | Other quality: `best`, `1080p`, `720p`, `480p`, `mp3` |
+| `vd -q 720p "LINK"` | Other quality: `best`, `original`, `1080p`, `720p`, `480p`, `mp3` |
 | `vd "LINK1" "LINK2"` | Several videos one after another |
 | `vd --playlist "LINK"` | A whole playlist |
 | `vd -f "D:\Videos" "LINK"` | Into another folder |
+
+`original` downloads the unprocessed upload file when a site offers one (e.g. course platforms using
+Wistia) – the sharpest version, but often several GB. Otherwise it behaves like `best`.
 
 Videos go to your **Downloads** folder. Change the defaults:
 
