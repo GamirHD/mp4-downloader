@@ -33,6 +33,7 @@ from browser_login import (
     site_of,
     temporary_cookie_file,
 )
+from i18n import LANGUAGES, set_language, t
 from page_extractor import EmbeddedMedia, find_embedded_media, referer_headers
 from site_auth import (
     Credentials,
@@ -46,7 +47,7 @@ from site_auth import (
 )
 
 APP_NAME = "mp4-downloader"
-__version__ = "1.3.1"
+__version__ = "2.0.0"
 REPO_ZIP_URL = "https://github.com/GamirHD/mp4-downloader/archive/refs/heads/main.zip"
 LATEST_RELEASE_API = "https://api.github.com/repos/GamirHD/mp4-downloader/releases/latest"
 SETUP_URL = "https://github.com/GamirHD/mp4-downloader/releases/latest/download/mp4-downloader-setup.exe"
@@ -56,36 +57,36 @@ SETUP_URL = "https://github.com/GamirHD/mp4-downloader/releases/latest/download/
 _NOT_ORIGINAL = "[format_id!=original]"
 QUALITY_OPTIONS = {
     "best": (
-        "Beste Qualität",
+        "Best quality",
         f"bv*[ext=mp4]{_NOT_ORIGINAL}+ba[ext=m4a]/b[ext=mp4]{_NOT_ORIGINAL}/bv*+ba/b",
         "mp4",
     ),
     "1080p": (
-        "Bis 1080p",
+        "Up to 1080p",
         f"bv*[height<=1080][ext=mp4]{_NOT_ORIGINAL}+ba[ext=m4a]/b[height<=1080][ext=mp4]{_NOT_ORIGINAL}"
         "/bv*[height<=1080]+ba/b[height<=1080]/b",
         "mp4",
     ),
     "720p": (
-        "Bis 720p",
+        "Up to 720p",
         f"bv*[height<=720][ext=mp4]{_NOT_ORIGINAL}+ba[ext=m4a]/b[height<=720][ext=mp4]{_NOT_ORIGINAL}"
         "/bv*[height<=720]+ba/b[height<=720]/b",
         "mp4",
     ),
     "480p": (
-        "Bis 480p",
+        "Up to 480p",
         f"bv*[height<=480][ext=mp4]{_NOT_ORIGINAL}+ba[ext=m4a]/b[height<=480][ext=mp4]{_NOT_ORIGINAL}"
         "/bv*[height<=480]+ba/b[height<=480]/b",
         "mp4",
     ),
-    "mp3": ("Nur Audio (MP3)", "bestaudio/best", "mp3"),
+    "mp3": ("Audio only (MP3)", "bestaudio/best", "mp3"),
 }
 DEFAULT_QUALITY = "1080p"
 EMBED_FALLBACK_ERROR_HINTS = ("unsupported url", "no video formats", "unable to extract", "no suitable")
 LOGIN_ERROR_HINTS = (
     "login", "log in", "sign in", "signin", "anmeld", "einlogg", "cookies", "401", "403", "forbidden",
     "unauthorized", "private", "members", "premium", "subscri", "registered", "authenticat", "account",
-    "kein eingebettetes video",
+    "kein eingebettetes video", "no embedded video",
 )
 NO_LOGIN_HELP_HINTS = ("drm", "ffmpeg", "dpapi", "no space", "kein speicherplatz")
 MAX_HISTORY_ENTRIES = 100
@@ -126,7 +127,7 @@ def login_profile_dir() -> Path:
 
 
 def load_settings() -> dict[str, Any]:
-    settings = {"download_dir": str(default_download_dir()), "quality": DEFAULT_QUALITY}
+    settings = {"download_dir": str(default_download_dir()), "quality": DEFAULT_QUALITY, "language": "en"}
     try:
         data = json.loads(config_path().read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -137,14 +138,25 @@ def load_settings() -> dict[str, Any]:
         settings["download_dir"] = data["download_dir"]
     if data.get("quality") in QUALITY_OPTIONS:
         settings["quality"] = data["quality"]
+    if data.get("language") in LANGUAGES:
+        settings["language"] = data["language"]
     return settings
 
 
 def save_settings(settings: dict[str, Any]) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    clean = {"download_dir": str(settings["download_dir"]), "quality": settings.get("quality", DEFAULT_QUALITY)}
+    clean = {
+        "download_dir": str(settings["download_dir"]),
+        "quality": settings.get("quality", DEFAULT_QUALITY),
+        "language": settings.get("language") if settings.get("language") in LANGUAGES else "en",
+    }
     path.write_text(json.dumps(clean, indent=2), encoding="utf-8")
+    set_language(None)
+
+
+def quality_label(key: str) -> str:
+    return t(f"quality.{key}")
 
 
 # --------------------------------------------------------------------------- history
@@ -253,7 +265,7 @@ def normalize_url_args(values: list[str]) -> list[str]:
 
 
 def no_urls_found_message() -> str:
-    return "Kein Link erkannt. Bitte eine Adresse wie https://... angeben."
+    return t("no_links")
 
 
 # --------------------------------------------------------------------------- errors
@@ -265,23 +277,20 @@ def friendly_error(raw_error: str) -> str:
         text = text[6:].strip()
     text = re.sub(r"^\[[\w:.-]+\]\s+[\w.-]+:\s+", "", text)
     lower = text.lower()
-    if "kein eingebettetes video" in lower:
+    if "kein eingebettetes video" in lower or "no embedded video" in lower:
         return text
     if "drm" in lower and "dpapi" not in lower:
-        return (
-            "Dieses Video ist kopiergeschützt (DRM) und kann nicht heruntergeladen werden "
-            "(z. B. Netflix, Disney+, Prime Video) - auch nicht mit Login."
-        )
+        return t("err.drm")
     if "ffmpeg" in lower:
-        return "ffmpeg fehlt. Installiere es (Windows: winget install Gyan.FFmpeg) und öffne ein neues Terminal."
+        return t("err.ffmpeg")
     if is_http_auth_error(lower):
-        return "Benutzername oder Passwort fehlt oder ist falsch (HTTP 401)."
+        return t("err.http_auth")
     if "sign in to confirm" in lower or "not a bot" in lower:
-        return "YouTube verlangt einen Login. Logge dich mit `vd login https://www.youtube.com` ein."
+        return t("err.youtube_login")
     if "unsupported url" in lower:
-        return "Dieser Link wird nicht unterstützt."
+        return t("err.unsupported")
     if "http error 404" in lower:
-        return "Die Seite wurde nicht gefunden (404). Bitte den Link prüfen."
+        return t("err.404")
     return text
 
 
@@ -406,7 +415,7 @@ def download_url(
     ``credentials`` (HTTP login) are only sent to the website of ``url``.
     """
     if yt_dlp is None:
-        raise RuntimeError("yt-dlp fehlt. Installiere vd neu.")
+        raise RuntimeError(t("ytdlp_missing"))
 
     # yt-dlp rewrites the options dict it gets, so keep the original untouched.
     with make_downloader(dict(options), credentials, url) as downloader:
@@ -415,14 +424,11 @@ def download_url(
         except yt_dlp.utils.DownloadError as exc:
             if not should_try_embedded_media(str(exc)):
                 raise
-            log("Suche das Video auf der Seite...")
+            log(t("searching_page"))
             media = find_embedded_media(downloader, url, debug_dir=debug_dir, credentials=credentials, log=log)
 
     if media is None or not media.media_urls:
-        raise RuntimeError(
-            "Kein eingebettetes Video auf der Seite gefunden. Falls die Seite einen Login braucht: "
-            f"vd login \"{url}\""
-        )
+        raise RuntimeError(t("no_embedded_video", url=url))
 
     media_options = embedded_media_options(options, media)
     last_error: Exception | None = None
@@ -501,17 +507,17 @@ def run_download(
         if not (use_saved_login and login_might_help(str(first_error))) or auth[0] is not None:
             raise
         if ask is None:
-            raise RuntimeError(f"{friendly_error(str(first_error))}\nTipp: vd login \"{url}\"") from first_error
+            raise RuntimeError(f"{friendly_error(str(first_error))}\n{t('login_tip', url=url)}") from first_error
         if saved_cookies_for(url, login_profile_dir()):
-            question = f"Der Login für {site} ist vielleicht abgelaufen. Neu einloggen?"
+            question = t("ask_login_expired", site=site)
         else:
-            question = f"{site} braucht vermutlich einen Login. Jetzt einloggen?"
+            question = t("ask_login_needed", site=site)
         if not ask(question):
             raise
-        log("Ein Browserfenster öffnet sich: einloggen und das Fenster danach schließen.")
+        log(t("login_window"))
         if not interactive_login(url, login_profile_dir(), log=lambda _text: None):
-            raise RuntimeError("Es wurde kein Login gespeichert.") from first_error
-        log(f"Login für {site} gespeichert. Neuer Versuch...")
+            raise RuntimeError(t("login_none_saved")) from first_error
+        log(t("login_saved_retry", site=site))
         return attempt()
 
 
@@ -526,12 +532,12 @@ def _retry_with_credentials(
 ) -> dict[str, Any] | None:
     """The website asks for user name and password (HTTP login, e.g. university servers)."""
     if ask_credentials is None:
-        raise RuntimeError(f"{site} verlangt Benutzername und Passwort. Starte vd im Terminal, um sie einzugeben.") from first_error
+        raise RuntimeError(t("credentials_need_terminal", site=site)) from first_error
     wrong = auth[0] is not None
     for _ in range(3):
         credentials = ask_credentials(site, wrong)
         if credentials is None:
-            raise RuntimeError("Abgebrochen: keine Zugangsdaten eingegeben.") from first_error
+            raise RuntimeError(t("credentials_cancelled")) from first_error
         auth[0] = credentials
         try:
             info = attempt()
@@ -541,20 +547,20 @@ def _retry_with_credentials(
                 continue
             raise
         if save_credentials(login_profile_dir(), url, credentials):
-            log(f"Zugangsdaten für {site} gespeichert (verschlüsselt).")
+            log(t("credentials_saved", site=site))
         return info
-    raise RuntimeError("Benutzername oder Passwort falsch.") from first_error
+    raise RuntimeError(t("credentials_wrong")) from first_error
 
 
 def ask_credentials_console(site: str, wrong: bool) -> Credentials | None:
     if wrong:
-        warn("Benutzername oder Passwort falsch.")
-    say(f"{site} verlangt Benutzername und Passwort.")
+        warn(t("credentials_wrong"))
+    say(t("credentials_required", site=site))
     try:
-        username = input("Benutzername: ").strip()
+        username = input(t("prompt_username")).strip()
         if not username:
             return None
-        password = getpass.getpass("Passwort (wird nicht angezeigt): ")
+        password = getpass.getpass(t("prompt_password"))
     except EOFError:
         return None
     return Credentials(username, password)
@@ -577,7 +583,7 @@ def is_interactive() -> bool:
 
 
 def ask_yes_no(question: str, *, default: bool = True) -> bool:
-    suffix = " [J/n] " if default else " [j/N] "
+    suffix = t("yes_no_default_yes") if default else t("yes_no_default_no")
     try:
         answer = input(question + suffix).strip().lower()
     except EOFError:
@@ -646,21 +652,22 @@ class ConsoleProgress:
         if key != self.current:
             self.end_line()
             self.current = key
-            part = " (Ton)" if info.get("vcodec") == "none" and info.get("acodec") not in (None, "none") else ""
-            print(f"Lade: {display_name(key) or info.get('title') or 'Video'}{part}", file=self.stream, flush=True)
+            part = t("audio_part") if info.get("vcodec") == "none" and info.get("acodec") not in (None, "none") else ""
+            name = display_name(key) or info.get("title") or "Video"
+            print(t("downloading", name=name) + part, file=self.stream, flush=True)
         if data.get("status") == "downloading":
             total = data.get("total_bytes") or data.get("total_bytes_estimate")
             done = data.get("downloaded_bytes") or 0
             parts = []
             if total:
                 parts.append(f"{min(done / total * 100, 100):5.1f} %".replace(".", ","))
-                parts.append(f"{format_size(done)} von {format_size(total)}")
+                parts.append(t("progress_of", done=format_size(done), total=format_size(total)))
             else:
                 parts.append(format_size(done))
             if data.get("speed"):
                 parts.append(f"{format_size(data['speed'])}/s")
             if data.get("eta") is not None:
-                parts.append(f"noch {format_eta(data['eta'])}")
+                parts.append(t("progress_left", eta=format_eta(data["eta"])))
             self._write_line("  " + "  ·  ".join(parts))
         elif data.get("status") == "finished":
             self._write_line(f"  100 %  ·  {format_size(data.get('total_bytes') or data.get('downloaded_bytes'))}")
@@ -711,21 +718,21 @@ def download_command(args: argparse.Namespace) -> int:
             )
         except KeyboardInterrupt:
             progress.end_line()
-            warn("Abgebrochen.")
+            warn(t("cancelled"))
             return 130
         except Exception as exc:  # noqa: BLE001 - CLI boundary
             progress.end_line()
             failures += 1
-            warn(f"Fehler: {friendly_error(str(exc))}")
+            warn(t("error", message=friendly_error(str(exc))))
             continue
         progress.end_line()
         title = info.get("title", "Video") if isinstance(info, dict) else "Video"
         add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
-        say(f"Gespeichert: {downloaded_file(info) or folder}")
+        say(t("saved", path=downloaded_file(info) or folder))
 
     if failures:
         if len(urls) > 1:
-            warn(f"{failures} von {len(urls)} Downloads fehlgeschlagen.")
+            warn(t("failures", failed=failures, total=len(urls)))
         return 1
     return 0
 
@@ -745,27 +752,27 @@ def login_command(args: argparse.Namespace) -> int:
     if not args.url:
         sites = sorted({site for site, _count in saved_sites(login_profile_dir())} | set(credential_sites(login_profile_dir())))
         if not sites:
-            say('Noch keine Logins gespeichert. Einloggen mit: vd login "LINK"')
+            say(t("logins_none"))
             return 0
-        say("Gespeicherte Logins:")
+        say(t("logins_title"))
         for site in sites:
             say(f"  {site}")
-        say("Ausloggen mit: vd logout SEITE")
+        say(t("logins_logout_hint"))
         return 0
     urls = normalize_url_args([args.url])
     if not urls:
         warn(no_urls_found_message())
         return 2
-    say("Ein Browserfenster öffnet sich: einloggen und das Fenster danach schließen.")
+    say(t("login_window"))
     try:
         count = interactive_login(urls[0], login_profile_dir(), log=lambda _text: None)
     except BrowserLoginError as exc:
-        warn(f"Fehler: {exc}")
+        warn(t("error", message=exc))
         return 1
     if count:
-        say(f"Login für {site_of(urls[0])} gespeichert.")
+        say(t("login_saved", site=site_of(urls[0])))
         return 0
-    warn("Es wurde kein Login gespeichert. Warst du eingeloggt?")
+    warn(t("login_none_saved_hint"))
     return 1
 
 
@@ -774,41 +781,45 @@ def logout_command(args: argparse.Namespace) -> int:
         site = site_of(args.site)
         removed_credentials = delete_credentials(login_profile_dir(), args.site)
         if delete_site_login(login_profile_dir(), args.site) or removed_credentials:
-            say(f"Login für {site} gelöscht.")
+            say(t("logout_done", site=site))
         else:
-            say(f"Für {site} war kein Login gespeichert.")
+            say(t("logout_none", site=site))
         return 0
     delete_credentials(login_profile_dir())
-    say("Alle Logins gelöscht." if delete_saved_login(login_profile_dir()) else "Es war kein Login gespeichert.")
+    say(t("logout_all") if delete_saved_login(login_profile_dir()) else t("logout_nothing"))
     return 0
 
 
 def settings_command(args: argparse.Namespace) -> int:
     settings = load_settings()
-    if args.folder or args.quality:
+    changed = bool(args.folder or args.quality or args.language)
+    if changed:
         if args.folder:
             folder = Path(args.folder).expanduser().resolve()
             folder.mkdir(parents=True, exist_ok=True)
             settings["download_dir"] = str(folder)
         if args.quality:
             settings["quality"] = args.quality
+        if args.language:
+            settings["language"] = args.language
         save_settings(settings)
-    say(f"Ordner:    {settings['download_dir']}")
-    say(f"Qualität:  {QUALITY_OPTIONS[settings['quality']][0]} ({settings['quality']})")
-    if not (args.folder or args.quality):
+    say(t("settings_folder", value=settings["download_dir"]))
+    say(t("settings_quality", value=f"{quality_label(settings['quality'])} ({settings['quality']})"))
+    say(t("settings_language", value=f"{LANGUAGES[settings['language']]} ({settings['language']})"))
+    if not changed:
         say("")
-        say('Ändern mit: vd settings --folder "PFAD"   oder   vd settings -q 720p')
+        say(t("settings_hint"))
     return 0
 
 
 def history_command(args: argparse.Namespace) -> int:
     if args.clear:
         clear_history()
-        say("Verlauf gelöscht.")
+        say(t("history_cleared"))
         return 0
     entries = load_history()
     if not entries:
-        say("Noch keine Downloads.")
+        say(t("history_empty"))
         return 0
     for entry in reversed(entries[:20]):
         say(f"{format_history_timestamp(entry['downloaded_at'])}  {entry['title']}")
@@ -838,16 +849,16 @@ def latest_release_version() -> str | None:
 def update_installed_app() -> int:
     latest = latest_release_version()
     if latest and version_tuple(latest) <= version_tuple(__version__):
-        say(f"Du hast bereits die neueste Version ({__version__}).")
+        say(t("update_latest", version=__version__))
         return 0
-    say(f"Lade Version {latest or 'neueste'}...")
+    say(t("update_downloading", version=latest or t("update_newest")))
     setup_path = Path(tempfile.gettempdir()) / "mp4-downloader-setup.exe"
     try:
         request = urllib.request.Request(SETUP_URL, headers={"User-Agent": f"vd/{__version__}"})
         with urllib.request.urlopen(request, timeout=60) as response, setup_path.open("wb") as file:
             shutil.copyfileobj(response, file)
     except Exception as exc:  # noqa: BLE001 - user-facing
-        warn(f"Download des Updates fehlgeschlagen: {exc}")
+        warn(t("update_download_failed", error=exc))
         return 1
     # The installer replaces this program, so it runs on its own after vd has exited.
     flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -856,29 +867,29 @@ def update_installed_app() -> int:
         creationflags=flags,
         close_fds=True,
     )
-    say("Das Update wird im Hintergrund installiert. In etwa einer Minute ist die neue Version bereit.")
+    say(t("update_installing"))
     return 0
 
 
 def update_command(_args: argparse.Namespace) -> int:
     if is_installed_app():
         return update_installed_app()
-    say("Aktualisiere vd und yt-dlp...")
+    say(t("update_pip"))
     command = [sys.executable, "-m", "pip", "install", "--upgrade", "--quiet", REPO_ZIP_URL, "yt-dlp"]
     result = subprocess.run(command, check=False)
     if result.returncode != 0:
-        warn("Update fehlgeschlagen. Versuche es mit:")
+        warn(t("update_failed"))
         warn(f'  python -m pip install --upgrade "{REPO_ZIP_URL}" yt-dlp')
         return 1
-    say("Fertig. Neue Version ist ab dem nächsten Aufruf aktiv.")
+    say(t("update_done"))
     return 0
 
 
 def selftest_command(_args: argparse.Namespace) -> int:
     """Hidden check used by the release build: are all parts bundled and working?"""
     say(f"vd {__version__}")
-    say(f"yt-dlp {yt_dlp.version.__version__ if yt_dlp else 'FEHLT'}")
-    say(f"ffmpeg {'gefunden' if shutil.which('ffmpeg') else 'nicht gefunden'}")
+    say(f"yt-dlp {yt_dlp.version.__version__ if yt_dlp else 'MISSING'}")
+    say(f"ffmpeg {'found' if shutil.which('ffmpeg') else 'not found'}")
     if yt_dlp is None:
         return 1
     try:
@@ -894,72 +905,58 @@ def selftest_command(_args: argparse.Namespace) -> int:
             title = page.title()
             browser.close()
     except Exception as exc:  # noqa: BLE001 - report everything
-        warn(f"Hintergrund-Browser: FEHLER {exc}")
+        warn(f"Background browser: FAILED {exc}")
         return 1
-    say(f"Hintergrund-Browser: ok ({title})")
+    say(f"Background browser: ok ({title})")
     if os.name == "nt":
         from site_auth import _dpapi
 
         secret = "Pässwort-Test".encode("utf-8")
         if _dpapi(_dpapi(secret, protect=True), protect=False) != secret:
-            warn("Verschlüsselung der Zugangsdaten: FEHLER")
+            warn("Credential encryption: FAILED")
             return 1
-        say("Verschlüsselung der Zugangsdaten: ok")
+        say("Credential encryption: ok")
     return 0
 
 
 # --------------------------------------------------------------------------- argument parsing
 
-HELP_EPILOG = """\
-Befehle:
-  vd login [LINK]        Einloggen (ohne LINK: gespeicherte Logins anzeigen)
-  vd logout [SEITE]      Login löschen (ohne SEITE: alle)
-  vd settings            Standard-Ordner und -Qualität anzeigen/ändern
-  vd history             Letzte Downloads anzeigen
-  vd update              vd und yt-dlp aktualisieren
-
-Beispiele:
-  vd "https://www.youtube.com/watch?v=..."
-  vd -a "LINK"           nur Ton als MP3
-  vd -q 720p "LINK1" "LINK2"
-"""
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="vd",
-        description="Videos per Link als MP4 (oder MP3) herunterladen.",
-        epilog=HELP_EPILOG,
+        description=t("help.description"),
+        epilog=t("help.epilog"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         add_help=False,
     )
-    parser._positionals.title = "Links"
-    parser._optionals.title = "Optionen"
-    parser.add_argument("urls", nargs="*", metavar="LINK", help="Ein oder mehrere Links")
-    parser.add_argument("-q", "--quality", choices=list(QUALITY_OPTIONS), help="Qualität (Standard: 1080p, siehe vd settings)")
-    parser.add_argument("-a", "--audio", action="store_true", help="Nur Ton als MP3")
-    parser.add_argument("-f", "--folder", metavar="ORDNER", help="Zielordner für diesen Download")
-    parser.add_argument("--playlist", action="store_true", help="Ganze Playlist statt nur ein Video laden")
-    parser.add_argument("-h", "--help", action="help", help="Diese Hilfe anzeigen")
-    parser.add_argument("--version", action="version", version=f"vd {__version__}", help="Version anzeigen")
-    advanced = parser.add_argument_group("Erweitert")
-    advanced.add_argument("--cookies", metavar="DATEI", help="Login-Cookies aus einer cookies.txt-Datei")
-    advanced.add_argument("--referer", metavar="URL", help="Seite, auf der ein direkt kopierter Stream-Link eingebettet ist")
+    parser._positionals.title = t("help.links_title")
+    parser._optionals.title = t("help.options_title")
+    parser.add_argument("urls", nargs="*", metavar="LINK", help=t("help.links"))
+    parser.add_argument("-q", "--quality", choices=list(QUALITY_OPTIONS), help=t("help.quality"))
+    parser.add_argument("-a", "--audio", action="store_true", help=t("help.audio"))
+    parser.add_argument("-f", "--folder", metavar=t("help.metavar_folder"), help=t("help.folder"))
+    parser.add_argument("--playlist", action="store_true", help=t("help.playlist"))
+    parser.add_argument("-h", "--help", action="help", help=t("help.help"))
+    parser.add_argument("--version", action="version", version=f"vd {__version__}", help=t("help.version"))
+    advanced = parser.add_argument_group(t("help.advanced_title"))
+    advanced.add_argument("--cookies", metavar=t("help.metavar_file"), help=t("help.cookies"))
+    advanced.add_argument("--referer", metavar="URL", help=t("help.referer"))
     advanced.add_argument("--debug", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
 def build_command_parsers() -> dict[str, argparse.ArgumentParser]:
-    login = argparse.ArgumentParser(prog="vd login", description="Auf einer Webseite einloggen.")
+    login = argparse.ArgumentParser(prog="vd login", description=t("help.cmd_login"))
     login.add_argument("url", nargs="?", metavar="LINK")
-    logout = argparse.ArgumentParser(prog="vd logout", description="Gespeicherte Logins löschen.")
-    logout.add_argument("site", nargs="?", metavar="SEITE", help="z. B. example.com (ohne: alle)")
-    settings = argparse.ArgumentParser(prog="vd settings", description="Standard-Ordner und -Qualität.")
-    settings.add_argument("-f", "--folder", metavar="ORDNER")
+    logout = argparse.ArgumentParser(prog="vd logout", description=t("help.cmd_logout"))
+    logout.add_argument("site", nargs="?", metavar=t("help.metavar_site"), help=t("help.cmd_logout_site"))
+    settings = argparse.ArgumentParser(prog="vd settings", description=t("help.cmd_settings"))
+    settings.add_argument("-f", "--folder", metavar=t("help.metavar_folder"))
     settings.add_argument("-q", "--quality", choices=list(QUALITY_OPTIONS))
-    history = argparse.ArgumentParser(prog="vd history", description="Letzte Downloads.")
-    history.add_argument("--clear", action="store_true", help="Verlauf löschen")
-    update = argparse.ArgumentParser(prog="vd update", description="vd und yt-dlp aktualisieren.")
+    settings.add_argument("-l", "--language", choices=list(LANGUAGES), help=t("help.cmd_language"))
+    history = argparse.ArgumentParser(prog="vd history", description=t("help.cmd_history"))
+    history.add_argument("--clear", action="store_true", help=t("help.cmd_history_clear"))
+    update = argparse.ArgumentParser(prog="vd update", description=t("help.cmd_update"))
     selftest = argparse.ArgumentParser(prog="vd selftest")
     return {
         "login": login, "logout": logout, "settings": settings, "history": history, "update": update,
@@ -998,7 +995,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return download_command(args)
     except KeyboardInterrupt:
-        warn("\nAbgebrochen.")
+        warn("\n" + t("cancelled"))
         return 130
 
 

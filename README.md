@@ -1,24 +1,25 @@
-# mp4-downloader (`vd`)
+# Video Downloader (`vd`)
 
-Videos per Link als **MP4** oder **MP3** herunterladen – von YouTube und vielen anderen Seiten,
-auch von Seiten mit eigenem Video-Player oder Login.
+Download videos from a link as **MP4** or **MP3** – from YouTube and many other sites, including
+pages with their own video player or a login (e.g. course platforms, university servers).
+Comes as a window app and as the command `vd`.
+
+**Deutsch:** [README.de.md](README.de.md)
 
 ```powershell
 vd "https://www.youtube.com/watch?v=..."
 ```
 
-## Installation
+## Install
 
-**Windows:** [`mp4-downloader-setup.exe`](https://github.com/GamirHD/mp4-downloader/releases/latest/download/mp4-downloader-setup.exe)
-herunterladen und starten – oder in PowerShell:
+One command installs the window app **and** `vd`:
+
+**Windows** (PowerShell) – or download and run
+[`mp4-downloader-setup.exe`](https://github.com/GamirHD/mp4-downloader/releases/latest/download/mp4-downloader-setup.exe):
 
 ```powershell
 irm https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.ps1 | iex
 ```
-
-Danach gibt es im Startmenü den **Video-Downloader** (Programm mit Fenster) und im Terminal den
-Befehl **`vd`**. Python wird nicht gebraucht, ffmpeg wird automatisch installiert. Deinstallieren
-geht wie bei jedem Programm über *Einstellungen → Apps → Video-Downloader*.
 
 **Linux / macOS:**
 
@@ -26,78 +27,76 @@ geht wie bei jedem Programm über *Einstellungen → Apps → Video-Downloader*.
 curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.sh | bash
 ```
 
-Danach ein **neues** Terminal öffnen. Aktualisieren geht später mit `vd update`.
+Afterwards you find **Video Downloader** in the Start menu / app menu / Applications folder, and the
+command `vd` in every **new** terminal. Windows needs nothing else (ffmpeg is installed automatically);
+Linux and macOS need Python 3 and ffmpeg. Update later with `vd update`.
 
-## Benutzung
+## Using the command line
 
-| Befehl | Was passiert |
+| Command | What happens |
 | --- | --- |
-| `vd "LINK"` | Video als MP4 laden (Standard: bis 1080p) |
-| `vd -a "LINK"` | Nur den Ton als MP3 |
-| `vd -q 720p "LINK"` | Andere Qualität: `best`, `1080p`, `720p`, `480p`, `mp3` |
-| `vd "LINK1" "LINK2"` | Mehrere Videos nacheinander |
-| `vd --playlist "LINK"` | Ganze Playlist |
-| `vd -f "D:\Videos" "LINK"` | In einen anderen Ordner |
+| `vd "LINK"` | Download the video as MP4 (default: up to 1080p) |
+| `vd -a "LINK"` | Audio only as MP3 |
+| `vd -q 720p "LINK"` | Other quality: `best`, `1080p`, `720p`, `480p`, `mp3` |
+| `vd "LINK1" "LINK2"` | Several videos one after another |
+| `vd --playlist "LINK"` | A whole playlist |
+| `vd -f "D:\Videos" "LINK"` | Into another folder |
 
-Videos landen standardmäßig im **Downloads**-Ordner. Standard-Ordner und -Qualität ändern:
+Videos go to your **Downloads** folder. Change the defaults:
 
 ```powershell
 vd settings -f "D:\Videos" -q 720p
+vd settings --language de      # Deutsch / --language en for English
 ```
 
-Weitere Befehle: `vd history` (letzte Downloads), `vd update` (vd und yt-dlp aktualisieren),
-`vd --help` (alle Optionen).
+More: `vd history` (recent downloads), `vd update`, `vd --help`.
 
-## Seiten mit Login
+## Window app
 
-Einfach den Link wie immer eingeben. Braucht die Seite einen Login, fragt `vd`:
+Paste links, pick quality and folder, click **Download**. The language can be switched at the top
+right, saved logins are managed under **Logins...**. It uses the same settings as `vd`.
+
+## Pages with a login
+
+Just enter the link as usual. If the page needs a login, vd asks:
 
 ```
-example.com braucht vermutlich einen Login. Jetzt einloggen? [J/n]
+example.com probably needs a login. Log in now? [Y/n]
 ```
 
-Mit **Enter** öffnet sich ein Browserfenster (dein Standardbrowser, z. B. Brave oder Chrome –
-sonst Edge): einloggen, Fenster schließen – der Download startet automatisch neu. Das Fenster
-nutzt ein eigenes Profil, deine normalen Browser-Logins bleiben unberührt. Der Login wird pro Seite gespeichert und beim nächsten Mal von selbst verwendet.
+Press **Enter**: a browser window opens (your default browser if it is Chromium-based, e.g. Brave or
+Chrome – otherwise Edge). Log in, close the window, and the download starts again. The window uses its
+own profile; your normal browser logins are not touched. The login is saved per site and used
+automatically next time.
+
+Some sites (e.g. university servers) ask for **user name and password** directly instead of showing
+a login page. Then vd asks for them in the terminal (the password stays hidden). They are only sent to
+that one site and stored encrypted for your Windows account.
 
 ```powershell
-vd login            # Seiten mit gespeichertem Login anzeigen
-vd login "LINK"     # vorab einloggen
-vd logout SEITE     # Login einer Seite löschen (ohne SEITE: alle)
+vd login            # list sites with a saved login
+vd login "LINK"     # log in beforehand
+vd logout SITE      # delete the login of one site (without SITE: all)
 ```
 
-Manche Seiten (z. B. Uni-Server) fragen statt einer Login-Seite direkt nach **Benutzername und
-Passwort**. Dann fragt `vd` im Terminal danach (das Passwort wird nicht angezeigt). Die Zugangsdaten
-werden nur an diese eine Seite geschickt und unter Windows verschlüsselt für dein Windows-Konto
-gespeichert.
+**Not possible:** copy-protected videos (DRM), e.g. Netflix, Disney+ or Prime Video – not even with a
+login. vd tells you right away.
 
-Logins liegen nur in den Programm-Einstellungen (Windows: `%APPDATA%\mp4-downloader`),
-nie im Download-Ordner.
+## Uninstall
 
-**Nicht möglich:** Videos mit Kopierschutz (DRM), z. B. Netflix, Disney+ oder Prime Video –
-auch nicht mit Login. `vd` sagt das dann direkt.
-
-## Programm mit Oberfläche
-
-Unter Windows im Startmenü **Video-Downloader** öffnen (nach einer Installation über Linux/macOS:
-`vd-gui`): Links einfügen, Qualität und Ordner wählen, fertig. Login-Abfragen funktionieren dort
-genauso.
-
-## Deinstallieren
-
-Windows: *Einstellungen → Apps → Video-Downloader → Deinstallieren* (entfernt Programm und `vd`).
+Windows: *Settings → Apps → Video Downloader → Uninstall* (removes the app and `vd`).
 
 Linux/macOS: `curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/uninstall.sh | bash`
 
-## Für Entwickler
+## For developers
 
 ```bash
 python -m pip install -e .
 python -m unittest
 ```
 
-Den Windows-Installer baut `build-windows.ps1` (PyInstaller + Inno Setup). Jeder Pull Request baut
-ihn auf einem Windows-Rechner bei GitHub und testet Installation, `vd` und Deinstallation.
-
-Releases entstehen automatisch, sobald eine neue `version` in `pyproject.toml` auf `main` landet
-(optionale Notizen in `.github/release-notes/vX.Y.Z.md`).
+`build-windows.ps1` builds the Windows installer (PyInstaller + Inno Setup). Every pull request builds
+it on a Windows machine at GitHub and tests install, `vd` and uninstall; Linux and macOS test
+`install.sh`. Releases are created automatically when a new `version` in `pyproject.toml` reaches
+`main` (optional notes in `.github/release-notes/vX.Y.Z.md`). Texts live in `i18n.py` (English and
+German).

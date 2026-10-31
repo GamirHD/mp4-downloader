@@ -1,3 +1,5 @@
+"""Video Downloader - window version of vd (same download logic as the command line)."""
+
 from __future__ import annotations
 
 import os
@@ -10,16 +12,21 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any
 
-from site_auth import Credentials
+from browser_login import delete_site_login, saved_sites
+from i18n import LANGUAGES, set_language, t
+from site_auth import Credentials, credential_sites, delete_credentials
 from vd_cli import (
     QUALITY_OPTIONS,
+    __version__,
     add_history_entry,
     downloaded_file,
     extract_urls_from_text,
+    format_eta,
+    format_size,
     friendly_error,
-    load_history,
     load_settings,
-    no_urls_found_message,
+    login_profile_dir,
+    quality_label,
     run_download,
     save_settings,
 )
@@ -29,25 +36,8 @@ try:
 except ImportError:  # pragma: no cover - handled in GUI startup
     yt_dlp = None
 
-
-APP_TITLE = "Video-Downloader"
-
-BG_COLOR = "#f4f7fb"
-SURFACE_COLOR = "#ffffff"
-BORDER_COLOR = "#d9e2ec"
-TEXT_COLOR = "#172033"
-MUTED_TEXT_COLOR = "#64748b"
-PRIMARY_COLOR = "#2563eb"
-PRIMARY_HOVER_COLOR = "#1d4ed8"
-SECONDARY_COLOR = "#e8eef7"
-SECONDARY_HOVER_COLOR = "#dbe7f6"
-SELECTION_COLOR = "#dbeafe"
-
-
-GUI_QUALITY_KEYS = list(QUALITY_OPTIONS)
-GUI_QUALITY_LABELS = {key: values[0] for key, values in QUALITY_OPTIONS.items()}
-GUI_QUALITY_CHOICES = [GUI_QUALITY_LABELS[key] for key in GUI_QUALITY_KEYS]
-GUI_QUALITY_BY_LABEL = dict(zip(GUI_QUALITY_CHOICES, GUI_QUALITY_KEYS))
+MUTED = "#6b7280"
+PAD = 12
 
 
 def enable_high_dpi_rendering() -> None:
@@ -60,7 +50,7 @@ def enable_high_dpi_rendering() -> None:
             ctypes.windll.shcore.SetProcessDpiAwareness(2)
         except (AttributeError, OSError):
             ctypes.windll.user32.SetProcessDPIAware()
-    except Exception:
+    except Exception:  # noqa: BLE001 - cosmetic only
         pass
 
 
@@ -71,429 +61,173 @@ class DownloadCancelled(RuntimeError):
 class DownloaderApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self._configure_tk_scaling()
-        self.title(APP_TITLE)
-        self.geometry("720x560")
-        self.minsize(640, 500)
-
+        self.settings = load_settings()
+        set_language(self.settings["language"])
         self.messages: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.download_thread: threading.Thread | None = None
         self.cancel_requested = threading.Event()
-        self.settings = load_settings()
 
         self.folder_var = tk.StringVar(value=self.settings["download_dir"])
-        self.quality_var = tk.StringVar(value=GUI_QUALITY_LABELS[self.settings["quality"]])
-        self.status_var = tk.StringVar(value="Bereit")
+        self.quality_key = self.settings["quality"]
+        self.quality_var = tk.StringVar()
+        self.playlist_var = tk.BooleanVar(value=False)
+        self.language_var = tk.StringVar(value=LANGUAGES[self.settings["language"]])
+        self.status_var = tk.StringVar()
         self.progress_var = tk.DoubleVar(value=0)
-        self.queued_urls: list[str] = []
-        self.url_listbox: tk.Listbox | None = None
+        self.links_text: tk.Text | None = None
         self.log_text: tk.Text | None = None
-        self.pending_log_messages: list[str] = []
-        self.content_frame: ttk.Frame | None = None
-        self.footer_frame: ttk.Frame | None = None
-        self.primary_action_button: tk.Button | None = None
-        self.cancel_button: tk.Button | None = None
 
+        self.geometry("780x640")
+        self.minsize(640, 540)
+        self._configure_style()
         self._build_ui()
         self.after(100, self._poll_messages)
-
         if yt_dlp is None:
-            self._set_idle_error("yt-dlp fehlt. Bitte das Programm neu installieren.")
+            self._log(t("ytdlp_missing"))
 
-    def _configure_tk_scaling(self) -> None:
-        try:
-            pixels_per_inch = float(self.winfo_fpixels("1i"))
-        except tk.TclError:
-            return
-        if pixels_per_inch > 0:
-            self.tk.call("tk", "scaling", max(1.0, pixels_per_inch / 72.0))
+    # ------------------------------------------------------------------ layout
 
     def _configure_style(self) -> None:
-        self.configure(bg=BG_COLOR)
         style = ttk.Style(self)
-        try:
+        if os.name == "nt" and "vista" in style.theme_names():
+            style.theme_use("vista")
+        elif "clam" in style.theme_names():
             style.theme_use("clam")
-        except tk.TclError:
-            pass
-
-        default_font = ("TkDefaultFont", 10)
-        style.configure(".", font=default_font, background=BG_COLOR, foreground=TEXT_COLOR)
-        style.configure("App.TFrame", background=BG_COLOR)
-        style.configure("Surface.TFrame", background=SURFACE_COLOR)
-        style.configure("App.TLabel", background=BG_COLOR, foreground=TEXT_COLOR)
-        style.configure("Surface.TLabel", background=SURFACE_COLOR, foreground=TEXT_COLOR)
-        style.configure("Title.TLabel", background=BG_COLOR, foreground=TEXT_COLOR, font=("TkDefaultFont", 18, "bold"))
-        style.configure("Muted.TLabel", background=BG_COLOR, foreground=MUTED_TEXT_COLOR)
-        style.configure(
-            "TButton",
-            background=SECONDARY_COLOR,
-            bordercolor=BORDER_COLOR,
-            focusthickness=1,
-            focuscolor=PRIMARY_COLOR,
-            padding=(12, 7),
-            relief="flat",
-        )
-        style.map(
-            "TButton",
-            background=[("active", SECONDARY_HOVER_COLOR), ("disabled", "#eef2f7")],
-            foreground=[("disabled", "#94a3b8")],
-        )
-        style.configure(
-            "Primary.TButton",
-            background=PRIMARY_COLOR,
-            foreground="#ffffff",
-            bordercolor=PRIMARY_COLOR,
-            padding=(16, 8),
-            relief="flat",
-        )
-        style.map(
-            "Primary.TButton",
-            background=[("active", PRIMARY_HOVER_COLOR), ("disabled", "#93c5fd")],
-            foreground=[("disabled", "#eef6ff")],
-        )
-        style.configure(
-            "TEntry",
-            fieldbackground=SURFACE_COLOR,
-            bordercolor=BORDER_COLOR,
-            lightcolor=BORDER_COLOR,
-            darkcolor=BORDER_COLOR,
-            padding=(8, 7),
-        )
-        style.configure(
-            "TCombobox",
-            fieldbackground=SURFACE_COLOR,
-            background=SURFACE_COLOR,
-            bordercolor=BORDER_COLOR,
-            arrowcolor=MUTED_TEXT_COLOR,
-            padding=(8, 5),
-        )
-        style.map("TCombobox", fieldbackground=[("readonly", SURFACE_COLOR)])
-        style.configure(
-            "TProgressbar",
-            background=PRIMARY_COLOR,
-            troughcolor="#e2e8f0",
-            bordercolor="#e2e8f0",
-            lightcolor=PRIMARY_COLOR,
-            darkcolor=PRIMARY_COLOR,
-        )
-        style.configure("TCheckbutton", background=BG_COLOR, foreground=TEXT_COLOR)
-        style.configure("Surface.TCheckbutton", background=SURFACE_COLOR, foreground=TEXT_COLOR)
+        style.configure("Title.TLabel", font=("Segoe UI", 15, "bold") if os.name == "nt" else ("TkDefaultFont", 15, "bold"))
+        style.configure("Muted.TLabel", foreground=MUTED)
+        style.configure("Section.TLabel", font=("Segoe UI", 10, "bold") if os.name == "nt" else ("TkDefaultFont", 10, "bold"))
 
     def _build_ui(self) -> None:
-        self._configure_style()
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
+        """(Re)build all widgets, e.g. after switching the language. Keeps links and log."""
+        links = self.links_text.get("1.0", "end").strip() if self.links_text is not None else ""
+        log = self.log_text.get("1.0", "end").strip() if self.log_text is not None else ""
+        for child in self.winfo_children():
+            child.destroy()
 
-        root = ttk.Frame(self, padding=18, style="App.TFrame")
-        root.grid(row=0, column=0, sticky="nsew")
+        self.title(t("gui.title"))
+        root = ttk.Frame(self, padding=PAD)
+        root.pack(fill="both", expand=True)
         root.columnconfigure(0, weight=1)
         root.rowconfigure(1, weight=1)
+        root.rowconfigure(5, weight=1)
 
-        title = ttk.Label(root, text=APP_TITLE, style="Title.TLabel")
-        title.grid(row=0, column=0, sticky="w")
-
-        self.content_frame = ttk.Frame(root, style="App.TFrame")
-        self.content_frame.grid(row=1, column=0, sticky="nsew", pady=(18, 12))
-        self.content_frame.columnconfigure(0, weight=1)
-        self.content_frame.rowconfigure(0, weight=1)
-
-        self.progress = ttk.Progressbar(root, variable=self.progress_var, maximum=100)
-        self.progress.grid(row=2, column=0, sticky="ew", pady=(0, 10))
-        self.progress.grid_remove()
-
-        status_row = ttk.Frame(root, style="App.TFrame")
-        status_row.grid(row=3, column=0, sticky="ew")
-        status_row.columnconfigure(0, weight=1)
-        ttk.Label(status_row, textvariable=self.status_var, style="Muted.TLabel").grid(row=0, column=0, sticky="w")
-
-        self.footer_frame = ttk.Frame(status_row, style="App.TFrame")
-        self.footer_frame.grid(row=0, column=1, sticky="e")
-
-        self._show_links_step()
-
-    def _clear_content(self) -> None:
-        if self.content_frame is not None:
-            for child in self.content_frame.winfo_children():
-                child.destroy()
-        self.url_listbox = None
-        self.log_text = None
-        if self.footer_frame is not None:
-            for child in self.footer_frame.winfo_children():
-                child.destroy()
-
-    def _button(
-        self,
-        parent: tk.Misc,
-        text: str,
-        command: Any,
-        *,
-        variant: str = "secondary",
-    ) -> tk.Button:
-        colors = {
-            "primary": (PRIMARY_COLOR, PRIMARY_HOVER_COLOR, "#ffffff"),
-            "danger": ("#dc2626", "#b91c1c", "#ffffff"),
-            "secondary": (SECONDARY_COLOR, SECONDARY_HOVER_COLOR, TEXT_COLOR),
-        }
-        background, active_background, foreground = colors[variant]
-        return tk.Button(
-            parent,
-            text=text,
-            command=command,
-            background=background,
-            activebackground=active_background,
-            foreground=foreground,
-            activeforeground=foreground,
-            disabledforeground="#dbe4ef" if variant != "secondary" else "#94a3b8",
-            relief="flat",
-            borderwidth=0,
-            cursor="hand2",
-            font=("TkDefaultFont", 10, "bold"),
-            padx=18,
-            pady=9,
-            highlightthickness=0,
+        # Header: title, language, logins
+        header = ttk.Frame(root)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, PAD))
+        header.columnconfigure(0, weight=1)
+        ttk.Label(header, text=t("gui.title"), style="Title.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(header, text=t("gui.language"), style="Muted.TLabel").grid(row=0, column=1, padx=(0, 6))
+        language_box = ttk.Combobox(
+            header, textvariable=self.language_var, values=list(LANGUAGES.values()), state="readonly", width=9
         )
+        language_box.grid(row=0, column=2)
+        language_box.bind("<<ComboboxSelected>>", lambda _e: self._change_language())
+        ttk.Button(header, text=t("gui.logins"), command=self._show_logins).grid(row=0, column=3, padx=(8, 0))
 
-    def _show_links_step(self) -> None:
-        self._clear_content()
-        self.progress.grid_remove()
-        self.status_var.set("Links einfügen")
-        if self.content_frame is None or self.footer_frame is None:
-            return
-
-        link_panel = ttk.Frame(self.content_frame, style="App.TFrame")
-        link_panel.grid(row=0, column=0, sticky="nsew")
-        link_panel.columnconfigure(0, weight=1)
-        link_panel.rowconfigure(2, weight=1)
-
-        ttk.Label(link_panel, text="Links", style="Title.TLabel").grid(row=0, column=0, sticky="w")
-
-        url_frame = ttk.Frame(link_panel, style="App.TFrame")
-        url_frame.grid(row=1, column=0, sticky="ew", pady=(14, 10))
-        url_frame.columnconfigure(0, weight=1)
-        self.url_entry = ttk.Entry(url_frame)
-        self.url_entry.grid(row=0, column=0, sticky="ew")
-        self.url_entry.bind("<Return>", lambda _event: self._add_url())
-        self._button(url_frame, "Hinzufügen", self._add_url).grid(row=0, column=1, sticky="ew", padx=(10, 0))
-
-        queue_frame = ttk.Frame(link_panel, style="App.TFrame")
-        queue_frame.grid(row=2, column=0, sticky="nsew")
-        queue_frame.columnconfigure(0, weight=1)
-        queue_frame.rowconfigure(0, weight=1)
-
-        self.url_listbox = self._create_listbox(queue_frame, height=10)
-        self.url_listbox.grid(row=0, column=0, sticky="nsew")
-        self.url_listbox.bind("<Delete>", lambda _event: self._remove_selected_urls())
-        queue_scrollbar = ttk.Scrollbar(queue_frame, command=self.url_listbox.yview)
-        queue_scrollbar.grid(row=0, column=1, sticky="ns")
-        self.url_listbox.configure(yscrollcommand=queue_scrollbar.set)
-        self._sync_url_listbox()
-
-        self.primary_action_button = self._button(
-            self.footer_frame,
-            "Weiter",
-            self._show_options_step,
-            variant="primary",
+        # Links
+        links_frame = ttk.Frame(root)
+        links_frame.grid(row=1, column=0, sticky="nsew")
+        links_frame.columnconfigure(0, weight=1)
+        links_frame.rowconfigure(1, weight=1)
+        ttk.Label(links_frame, text=t("gui.links"), style="Section.TLabel").grid(row=0, column=0, sticky="w")
+        buttons = ttk.Frame(links_frame)
+        buttons.grid(row=0, column=1, sticky="e")
+        ttk.Button(buttons, text=t("gui.paste"), command=self._paste_links).pack(side="left")
+        ttk.Button(buttons, text=t("gui.clear"), command=lambda: self.links_text.delete("1.0", "end")).pack(
+            side="left", padx=(6, 0)
         )
-        self.primary_action_button.grid(row=0, column=0, sticky="e")
+        self.links_text = self._text(links_frame, height=6)
+        self.links_text.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
+        if links:
+            self.links_text.insert("1.0", links)
 
-    def _show_options_step(self) -> None:
-        if self.url_entry.get().strip():
-            self._add_url()
-        if not self.queued_urls:
-            messagebox.showwarning(APP_TITLE, "Bitte mindestens einen Video-Link einfügen.")
-            return
-
-        self._clear_content()
-        self.progress.grid_remove()
-        link_count = len(self.queued_urls)
-        self.status_var.set("1 Link bereit" if link_count == 1 else f"{link_count} Links bereit")
-        if self.content_frame is None or self.footer_frame is None:
-            return
-
-        options = ttk.Frame(self.content_frame, padding=16, style="Surface.TFrame")
-        options.grid(row=0, column=0, sticky="nsew")
+        # Options: quality, playlist, folder
+        options = ttk.Frame(root)
+        options.grid(row=2, column=0, sticky="ew", pady=(PAD, 0))
         options.columnconfigure(1, weight=1)
-
-        ttk.Label(options, text="Download einstellen", style="Surface.TLabel").grid(
-            row=0, column=0, columnspan=4, sticky="w", pady=(0, 14)
-        )
-
-        ttk.Label(options, text="Qualität", style="Surface.TLabel").grid(row=1, column=0, sticky="w")
+        ttk.Label(options, text=t("gui.quality")).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        quality_labels = [quality_label(key) for key in QUALITY_OPTIONS]
+        self.quality_var.set(quality_label(self.quality_key))
         quality_box = ttk.Combobox(
-            options,
-            textvariable=self.quality_var,
-            values=GUI_QUALITY_CHOICES,
-            state="readonly",
-            width=22,
+            options, textvariable=self.quality_var, values=quality_labels, state="readonly", width=22
         )
-        quality_box.grid(row=1, column=1, sticky="ew", padx=(10, 0))
-
-        ttk.Label(options, text="Ordner", style="Surface.TLabel").grid(row=2, column=0, sticky="w", pady=(12, 0))
-        ttk.Entry(options, textvariable=self.folder_var).grid(
-            row=2, column=1, sticky="ew", padx=(10, 10), pady=(12, 0)
+        quality_box.grid(row=0, column=1, sticky="w")
+        quality_box.bind("<<ComboboxSelected>>", lambda _e: self._remember_quality())
+        ttk.Checkbutton(options, text=t("gui.playlist"), variable=self.playlist_var).grid(
+            row=0, column=2, columnspan=2, sticky="e"
         )
-        self._button(options, "Wählen", self._choose_folder).grid(row=2, column=2, pady=(12, 0))
-        self._button(options, "Öffnen", self._open_folder).grid(row=2, column=3, padx=(8, 0), pady=(12, 0))
-
-        ttk.Label(
-            options,
-            text=(
-                "Braucht eine Seite einen Login, fragt das Programm nach und öffnet ein Fenster "
-                "zum Einloggen. Der Login wird danach automatisch verwendet."
-            ),
-            style="Surface.TLabel",
-            foreground=MUTED_TEXT_COLOR,
-            wraplength=460,
-        ).grid(row=3, column=1, columnspan=3, sticky="w", padx=(10, 0), pady=(14, 0))
-
-        self._button(self.footer_frame, "Zurück", self._show_links_step).grid(row=0, column=0, sticky="e", padx=(0, 8))
-        self.primary_action_button = self._button(
-            self.footer_frame,
-            "OK",
-            self._start_download,
-            variant="primary",
+        ttk.Label(options, text=t("gui.folder")).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(8, 0))
+        ttk.Entry(options, textvariable=self.folder_var).grid(row=1, column=1, sticky="ew", pady=(8, 0))
+        ttk.Button(options, text=t("gui.choose"), command=self._choose_folder).grid(
+            row=1, column=2, padx=(8, 0), pady=(8, 0)
         )
-        self.primary_action_button.grid(row=0, column=1, sticky="e")
-
-    def _show_log_step(self) -> None:
-        self._clear_content()
-        self.progress.grid()
-        if self.content_frame is None or self.footer_frame is None:
-            return
-
-        log_frame = ttk.Frame(self.content_frame, style="App.TFrame")
-        log_frame.grid(row=0, column=0, sticky="nsew")
-        log_frame.columnconfigure(0, weight=1)
-        log_frame.rowconfigure(0, weight=1)
-
-        self.log_text = tk.Text(
-            log_frame,
-            height=16,
-            wrap="word",
-            state="disabled",
-            background=SURFACE_COLOR,
-            foreground=TEXT_COLOR,
-            insertbackground=TEXT_COLOR,
-            selectbackground=SELECTION_COLOR,
-            selectforeground=TEXT_COLOR,
-            relief="flat",
-            borderwidth=0,
-            padx=10,
-            pady=8,
+        ttk.Button(options, text=t("gui.open"), command=self._open_folder).grid(
+            row=1, column=3, padx=(6, 0), pady=(8, 0)
         )
-        self.log_text.grid(row=0, column=0, sticky="nsew")
-        scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        self.log_text.configure(yscrollcommand=scrollbar.set)
-        for message in self.pending_log_messages:
-            self._write_log(message)
-        self.pending_log_messages.clear()
-
-        self.cancel_button = self._button(self.footer_frame, "Abbrechen", self._cancel_download, variant="danger")
-        self.cancel_button.grid(row=0, column=0, sticky="e")
-
-    def _create_listbox(self, parent: tk.Misc, height: int) -> tk.Listbox:
-        return tk.Listbox(
-            parent,
-            height=height,
-            activestyle="none",
-            selectmode="extended",
-            background=SURFACE_COLOR,
-            foreground=TEXT_COLOR,
-            selectbackground=SELECTION_COLOR,
-            selectforeground=TEXT_COLOR,
-            highlightthickness=1,
-            highlightbackground=BORDER_COLOR,
-            highlightcolor=PRIMARY_COLOR,
-            relief="flat",
-            borderwidth=0,
+        ttk.Label(options, text=t("gui.login_hint"), style="Muted.TLabel", wraplength=700).grid(
+            row=2, column=0, columnspan=4, sticky="w", pady=(8, 0)
         )
 
-    def _paste_url(self) -> None:
-        try:
-            text = self.clipboard_get().strip()
-            if not text:
-                self._log("Zwischenablage ist leer.")
-                return
-            self._add_urls_from_text(text)
-        except tk.TclError:
-            self._log("Zwischenablage ist leer.")
+        # Actions
+        actions = ttk.Frame(root)
+        actions.grid(row=3, column=0, sticky="ew", pady=(PAD, 0))
+        actions.columnconfigure(0, weight=1)
+        ttk.Label(actions, textvariable=self.status_var, style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        self.cancel_button = ttk.Button(actions, text=t("gui.cancel"), command=self._cancel_download)
+        self.cancel_button.grid(row=0, column=1, padx=(0, 8))
+        self.download_button = ttk.Button(actions, text=t("gui.download"), command=self._start_download)
+        self.download_button.grid(row=0, column=2)
+        ttk.Progressbar(root, variable=self.progress_var, maximum=100).grid(
+            row=4, column=0, sticky="ew", pady=(8, 0)
+        )
 
-    def _add_url(self) -> None:
-        text = self.url_entry.get().strip()
-        if not text:
-            return
-        self._add_urls_from_text(text)
-        self.url_entry.delete(0, "end")
+        # Log
+        self.log_text = self._text(root, height=8, readonly=True)
+        self.log_text.grid(row=5, column=0, sticky="nsew", pady=(8, 0))
+        if log:
+            self._append_log(log)
 
-    def _add_urls_from_text(self, text: str) -> None:
-        urls = extract_urls_from_text(text)
-        if not urls:
-            self._log(no_urls_found_message())
-            return
-        existing = set(self.queued_urls)
-        added = 0
-        for url in urls:
-            if url in existing:
-                continue
-            self.queued_urls.append(url)
-            existing.add(url)
-            added += 1
-        self._sync_url_listbox()
-        if added:
-            label = "Link" if added == 1 else "Links"
-            self._log(f"{added} {label} zur Warteschlange hinzugefügt.")
-        else:
-            self._log("Keine neuen Links hinzugefügt.")
+        version = ttk.Label(root, text=f"vd {__version__}", style="Muted.TLabel")
+        version.grid(row=6, column=0, sticky="e", pady=(6, 0))
 
-    def _remove_selected_urls(self) -> None:
-        if self.url_listbox is None:
-            return
-        selected = list(self.url_listbox.curselection())
-        if not selected:
-            return
-        for index in reversed(selected):
-            del self.queued_urls[index]
-        self._sync_url_listbox()
-        self._log(f"{len(selected)} Link(s) aus der Warteschlange entfernt.")
+        running = bool(self.download_thread and self.download_thread.is_alive())
+        self._set_running(running)
+        if not running:
+            self.status_var.set(t("gui.ready"))
 
-    def _sync_url_listbox(self) -> None:
-        if self.url_listbox is None:
-            return
-        self.url_listbox.delete(0, "end")
-        for url in self.queued_urls:
-            self.url_listbox.insert("end", url)
+    def _text(self, parent: tk.Misc, *, height: int, readonly: bool = False) -> tk.Text:
+        text = tk.Text(
+            parent, height=height, wrap="word", relief="solid", borderwidth=1, padx=8, pady=6, undo=not readonly
+        )
+        if readonly:
+            text.configure(state="disabled", background="#f7f7f8")
+        return text
 
-    def _reset_for_new_download(self) -> None:
-        if self.download_thread and self.download_thread.is_alive():
-            return
-        self.queued_urls.clear()
-        self.progress_var.set(0)
-        self.pending_log_messages.clear()
-        self.log_text = None
-        self._show_links_step()
+    def _set_running(self, running: bool) -> None:
+        self.download_button.configure(state="disabled" if running else "normal")
+        self.cancel_button.configure(state="normal" if running else "disabled")
 
-    def _finish_download_controls(self) -> None:
-        if self.cancel_button is not None:
-            self.cancel_button.configure(state="disabled")
-        if self.footer_frame is not None:
-            self._button(self.footer_frame, "Neuer Download", self._reset_for_new_download, variant="primary").grid(
-                row=0, column=1, sticky="e", padx=(8, 0)
-            )
+    # ------------------------------------------------------------------ settings
 
-    def _read_urls(self) -> list[str]:
-        return [url.strip() for url in self.queued_urls if url.strip()]
+    def _change_language(self) -> None:
+        code = next(code for code, name in LANGUAGES.items() if name == self.language_var.get())
+        self.settings["language"] = code
+        save_settings(self.settings)
+        set_language(code)
+        self._build_ui()
 
-    def _refresh_history(self) -> None:
-        self.history_entries = load_history()
+    def _remember_quality(self) -> None:
+        labels = {quality_label(key): key for key in QUALITY_OPTIONS}
+        self.quality_key = labels.get(self.quality_var.get(), self.quality_key)
+        self.settings["quality"] = self.quality_key
+        save_settings(self.settings)
 
     def _choose_folder(self) -> None:
-        folder = filedialog.askdirectory(initialdir=self.folder_var.get() or str(Path.home()))
+        folder = filedialog.askdirectory(initialdir=self.folder_var.get() or str(Path.home()), parent=self)
         if folder:
             self.folder_var.set(folder)
             self.settings["download_dir"] = folder
             save_settings(self.settings)
-            self._log(f"Downloadordner gespeichert: {folder}")
 
     def _open_folder(self) -> None:
         folder = Path(self.folder_var.get()).expanduser()
@@ -506,65 +240,165 @@ class DownloaderApp(tk.Tk):
             else:
                 subprocess.Popen(["xdg-open", str(folder)])
         except Exception as exc:  # noqa: BLE001 - OS integration boundary
-            messagebox.showerror(APP_TITLE, f"Ordner kann nicht geöffnet werden:\n{exc}")
+            messagebox.showerror(t("gui.title"), t("gui.open_error", error=exc), parent=self)
+
+    def _paste_links(self) -> None:
+        try:
+            text = self.clipboard_get().strip()
+        except tk.TclError:
+            return
+        if text:
+            current = self.links_text.get("1.0", "end").strip()
+            self.links_text.insert("end", ("\n" if current else "") + text)
+
+    # ------------------------------------------------------------------ logins
+
+    def _show_logins(self) -> None:
+        dialog = tk.Toplevel(self)
+        dialog.title(t("gui.logins_title"))
+        dialog.transient(self)
+        dialog.resizable(False, False)
+        frame = ttk.Frame(dialog, padding=PAD)
+        frame.pack(fill="both", expand=True)
+        listbox = tk.Listbox(frame, height=8, width=42, relief="solid", borderwidth=1)
+        empty = ttk.Label(frame, text=t("gui.logins_empty"), style="Muted.TLabel", justify="left")
+
+        def refresh() -> None:
+            profile = login_profile_dir()
+            sites = sorted({site for site, _count in saved_sites(profile)} | set(credential_sites(profile)))
+            listbox.delete(0, "end")
+            for site in sites:
+                listbox.insert("end", site)
+            if sites:
+                empty.grid_remove()
+                listbox.grid(row=0, column=0, columnspan=2, sticky="nsew")
+            else:
+                listbox.grid_remove()
+                empty.grid(row=0, column=0, columnspan=2, sticky="w")
+
+        def logout() -> None:
+            for index in reversed(listbox.curselection()):
+                site = listbox.get(index)
+                delete_site_login(login_profile_dir(), site)
+                delete_credentials(login_profile_dir(), site)
+            refresh()
+
+        ttk.Button(frame, text=t("gui.logout"), command=logout).grid(row=1, column=0, sticky="w", pady=(PAD, 0))
+        ttk.Button(frame, text=t("gui.close"), command=dialog.destroy).grid(row=1, column=1, sticky="e", pady=(PAD, 0))
+        refresh()
+        dialog.grab_set()
+
+    # ------------------------------------------------------------------ downloading
 
     def _start_download(self) -> None:
         if self.download_thread and self.download_thread.is_alive():
             return
-
-        try:
-            pending_text = self.url_entry.get().strip() if self.url_entry.winfo_exists() else ""
-        except tk.TclError:
-            pending_text = ""
-        if pending_text:
-            self._add_urls_from_text(pending_text)
-            self.url_entry.delete(0, "end")
-
-        urls = self._read_urls()
-        folder = Path(self.folder_var.get()).expanduser()
-        quality = GUI_QUALITY_BY_LABEL.get(self.quality_var.get(), self.settings["quality"])
-
-        if yt_dlp is None:
-            messagebox.showerror(APP_TITLE, "yt-dlp ist nicht installiert.")
-            return
+        urls = extract_urls_from_text(self.links_text.get("1.0", "end"))
         if not urls:
-            messagebox.showwarning(APP_TITLE, "Bitte mindestens einen Video-Link einfügen.")
+            messagebox.showwarning(t("gui.title"), t("gui.no_links"), parent=self)
             return
+        if yt_dlp is None:
+            messagebox.showerror(t("gui.title"), t("ytdlp_missing"), parent=self)
+            return
+        folder = Path(self.folder_var.get()).expanduser()
         try:
             folder.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            messagebox.showerror(APP_TITLE, f"Download-Ordner kann nicht erstellt werden:\n{exc}")
+            messagebox.showerror(t("gui.title"), t("gui.folder_error", error=exc), parent=self)
             return
 
+        self._remember_quality()
         self.settings["download_dir"] = str(folder)
-        self.settings["quality"] = quality
         save_settings(self.settings)
         self.cancel_requested.clear()
         self.progress_var.set(0)
-        self.status_var.set("Download läuft...")
-        self.pending_log_messages.clear()
-        self._show_log_step()
-        if len(urls) == 1:
-            self._log(f"Starte Download: {urls[0]}")
-        else:
-            self._log(f"Starte Batch-Download mit {len(urls)} Links.")
+        self.status_var.set(t("gui.running"))
+        self._set_running(True)
         self.download_thread = threading.Thread(
             target=self._download_worker,
-            args=(urls, folder, quality),
+            args=(urls, folder, self.quality_key, self.playlist_var.get()),
             daemon=True,
         )
         self.download_thread.start()
 
+    def _cancel_download(self) -> None:
+        if self.download_thread and self.download_thread.is_alive() and not self.cancel_requested.is_set():
+            self.cancel_requested.set()
+            self.status_var.set(t("gui.cancelling"))
+
+    def _download_worker(self, urls: list[str], folder: Path, quality_key: str, playlist: bool = False) -> None:
+        def hook(data: dict[str, Any]) -> None:
+            if self.cancel_requested.is_set():
+                raise DownloadCancelled(t("cancelled"))
+            if data.get("status") == "downloading":
+                total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
+                done = data.get("downloaded_bytes") or 0
+                percent = min(done / total * 100, 100) if total else 0
+                self.messages.put(("progress", percent))
+                if data.get("speed") and data.get("eta") is not None:
+                    self.messages.put((
+                        "status",
+                        t(
+                            "gui.speed",
+                            percent=f"{percent:.0f} %",
+                            speed=f"{format_size(data['speed'])}/s",
+                            eta=format_eta(data["eta"]),
+                        ),
+                    ))
+            elif data.get("status") == "finished":
+                self.messages.put(("progress", 100))
+                self.messages.put(("status", t("gui.processing")))
+
+        def log(text: str) -> None:
+            self.messages.put(("log", text))
+
+        failures = 0
+        for index, url in enumerate(urls, start=1):
+            if self.cancel_requested.is_set():
+                break
+            if len(urls) > 1:
+                self.messages.put(("status", t("gui.running_n", index=index, total=len(urls))))
+            log(url)
+            try:
+                info = run_download(
+                    url,
+                    quality_key,
+                    folder,
+                    playlist=playlist,
+                    progress_hooks=[hook],
+                    log=log,
+                    ask=self._ask_from_worker,
+                    ask_credentials=self._ask_credentials_from_worker,
+                )
+            except DownloadCancelled:
+                break
+            except Exception as exc:  # noqa: BLE001 - user-facing GUI boundary
+                failures += 1
+                log(t("error", message=friendly_error(str(exc))))
+                continue
+            title = info.get("title", "Video") if isinstance(info, dict) else "Video"
+            add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
+            log(t("saved", path=downloaded_file(info) or title))
+
+        if self.cancel_requested.is_set():
+            self.messages.put(("finished", t("cancelled")))
+        elif failures:
+            self.messages.put(("finished", t("failures", failed=failures, total=len(urls))))
+        else:
+            self.messages.put(("finished", t("gui.done_one") if len(urls) == 1 else t("gui.done_all", total=len(urls))))
+
+    # ------------------------------------------------------------------ questions from the download thread
+
     def _ask_from_worker(self, question: str) -> bool:
-        """Ask a yes/no question on the GUI thread and wait for the answer."""
         answered = threading.Event()
         answer = [False]
         self.messages.put(("ask_yes_no", (question, answered, answer)))
         answered.wait()
+        if answer[0]:
+            self.messages.put(("status", t("gui.login_window_status")))
         return answer[0]
 
     def _ask_credentials_from_worker(self, site: str, wrong: bool) -> Credentials | None:
-        """Ask for user name and password (HTTP login) on the GUI thread."""
         answered = threading.Event()
         answer: list[Credentials | None] = [None]
         self.messages.put(("ask_credentials", (site, wrong, answered, answer)))
@@ -572,144 +406,54 @@ class DownloaderApp(tk.Tk):
         return answer[0]
 
     def _show_credentials_dialog(self, site: str, wrong: bool) -> Credentials | None:
-        intro = "Benutzername oder Passwort war falsch.\n\n" if wrong else ""
+        intro = t("gui.credentials_wrong") if wrong else ""
         username = simpledialog.askstring(
-            APP_TITLE, f"{intro}{site} verlangt eine Anmeldung.\n\nBenutzername:", parent=self
+            t("gui.title"), t("gui.credentials_prompt", intro=intro, site=site), parent=self
         )
         if not username:
             return None
-        password = simpledialog.askstring(APP_TITLE, f"Passwort für {username}:", show="*", parent=self)
+        password = simpledialog.askstring(t("gui.title"), t("gui.password_for", user=username), show="*", parent=self)
         if password is None:
             return None
         return Credentials(username.strip(), password)
 
-    def _cancel_download(self) -> None:
-        if not self.download_thread or not self.download_thread.is_alive():
-            return
-        if self.cancel_requested.is_set():
-            return
-        self.cancel_requested.set()
-        if self.cancel_button is not None:
-            self.cancel_button.configure(state="disabled")
-        self.status_var.set("Abbruch wird vorbereitet...")
-        self._log("Abbruch angefordert. Der aktuelle Download wird gestoppt.")
-
-    def _download_worker(self, urls: list[str], folder: Path, quality_key: str) -> None:
-        def hook(data: dict[str, Any]) -> None:
-            if self.cancel_requested.is_set():
-                raise DownloadCancelled("Download abgebrochen.")
-            status = data.get("status")
-            if status == "downloading":
-                total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
-                downloaded = data.get("downloaded_bytes") or 0
-                if total:
-                    self.messages.put(("progress", min(downloaded / total * 100, 100)))
-                speed = data.get("_speed_str", "").strip()
-                eta = data.get("_eta_str", "").strip()
-                details = f" {speed} · noch {eta}" if speed and eta else ""
-                self.messages.put(("status", f"Lädt herunter...{details}"))
-            elif status == "finished":
-                self.messages.put(("progress", 100))
-                self.messages.put(("status", "Verarbeite Datei..."))
-
-        def log(text: str) -> None:
-            self.messages.put(("log", text))
-
-        failures: list[str] = []
-        for index, url in enumerate(urls, start=1):
-            if self.cancel_requested.is_set():
-                self.messages.put(("cancelled", "Download abgebrochen."))
-                return
-            if len(urls) > 1:
-                log(f"[{index}/{len(urls)}] {url}")
-                self.messages.put(("status", f"Download {index} von {len(urls)} läuft..."))
-            try:
-                info = run_download(
-                    url,
-                    quality_key,
-                    folder,
-                    progress_hooks=[hook],
-                    log=log,
-                    ask=self._ask_from_worker,
-                    ask_credentials=self._ask_credentials_from_worker,
-                )
-            except DownloadCancelled:
-                self.messages.put(("cancelled", "Download abgebrochen."))
-                return
-            except Exception as exc:  # noqa: BLE001 - user-facing GUI boundary
-                failures.append(url)
-                log(f"Fehler: {friendly_error(str(exc))}")
-                continue
-            title = info.get("title", "Video") if isinstance(info, dict) else "Video"
-            add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
-            self.messages.put(("history_changed", None))
-            log(f"Gespeichert: {downloaded_file(info) or title}")
-
-        if failures:
-            self.messages.put(("batch_error", f"{len(failures)} von {len(urls)} Downloads fehlgeschlagen."))
-            return
-        self.messages.put(("done", "Download fertig." if len(urls) == 1 else f"Alle {len(urls)} Downloads fertig."))
+    # ------------------------------------------------------------------ message loop
 
     def _poll_messages(self) -> None:
         while True:
             try:
-                message_type, payload = self.messages.get_nowait()
+                kind, payload = self.messages.get_nowait()
             except queue.Empty:
                 break
-
-            if message_type == "log":
+            if kind == "log":
                 self._log(str(payload))
-            elif message_type == "progress":
+            elif kind == "progress":
                 self.progress_var.set(float(payload))
-            elif message_type == "status":
+            elif kind == "status":
                 self.status_var.set(str(payload))
-            elif message_type == "ask_yes_no":
+            elif kind == "ask_yes_no":
                 question, answered, answer = payload
                 try:
-                    answer[0] = messagebox.askyesno(APP_TITLE, question)
+                    answer[0] = messagebox.askyesno(t("gui.title"), question, parent=self)
                 finally:
                     answered.set()
-            elif message_type == "ask_credentials":
+            elif kind == "ask_credentials":
                 site, wrong, answered, answer = payload
                 try:
                     answer[0] = self._show_credentials_dialog(site, wrong)
                 finally:
                     answered.set()
-            elif message_type == "history_changed":
-                self._refresh_history()
-            elif message_type == "done":
+            elif kind == "finished":
                 self._log(str(payload))
-                self.status_var.set("Fertig")
-                self._finish_download_controls()
-            elif message_type == "cancelled":
-                self._log(str(payload))
-                self.status_var.set("Abgebrochen")
-                self._finish_download_controls()
-            elif message_type == "batch_error":
-                self._log(f"Fehler: {payload}")
-                self.status_var.set("Fertig mit Fehlern")
-                self._finish_download_controls()
-                messagebox.showerror(APP_TITLE, str(payload))
-            elif message_type == "error":
-                self._set_idle_error(str(payload))
-
+                self.status_var.set(str(payload))
+                self._set_running(False)
         self.after(100, self._poll_messages)
 
-    def _set_idle_error(self, message: str) -> None:
-        self._log(f"Fehler: {message}")
-        self.status_var.set("Fehler")
-        if self.cancel_button is not None:
-            self.cancel_button.configure(state="disabled")
-        messagebox.showerror(APP_TITLE, message)
-
     def _log(self, message: str) -> None:
-        if self.log_text is None:
-            self.pending_log_messages.append(message)
-            self.status_var.set(message)
-            return
-        self._write_log(message)
+        if self.log_text is not None:
+            self._append_log(message)
 
-    def _write_log(self, message: str) -> None:
+    def _append_log(self, message: str) -> None:
         self.log_text.configure(state="normal")
         self.log_text.insert("end", f"{message}\n")
         self.log_text.see("end")

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mp4-downloader"
-version = "1.3.1"
-description = "Videos per Link als MP4 oder MP3 herunterladen (yt-dlp)."
+version = "2.0.0"
+description = "Download videos from a link as MP4 or MP3 (yt-dlp)."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -25,4 +25,4 @@ vd = "vd_cli:main"
 vd-gui = "mp4_downloader:main"
 
 [tool.setuptools]
-py-modules = ["browser_login", "browsers", "mp4_downloader", "page_extractor", "run", "site_auth", "vd_cli"]
+py-modules = ["browser_login", "browsers", "i18n", "mp4_downloader", "page_extractor", "run", "site_auth", "vd_cli"]

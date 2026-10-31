@@ -68,7 +68,9 @@ def _dpapi(data: bytes, *, protect: bool) -> bytes:
     function = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
     ok = function(ctypes.byref(data_in), None, None, None, None, 0x1, ctypes.byref(data_out))  # UI_FORBIDDEN
     if not ok:
-        raise OSError("Windows-Verschlüsselung (DPAPI) fehlgeschlagen")
+        from i18n import t
+
+        raise OSError(t("dpapi_failed"))
     try:
         return ctypes.string_at(data_out.pbData, data_out.cbData)
     finally:
