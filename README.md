@@ -82,6 +82,12 @@ vd login "LINK"     # log in beforehand
 vd logout SITE      # delete the login of one site (without SITE: all)
 ```
 
+**Sites that allow only one login at a time** (logging in with vd logs you out in your browser):
+take over your browser's login instead. In your browser open the site (logged in), click the
+extension *Get cookies.txt LOCALLY* → **Copy**, then run `vd login --import` (or *Logins... → Take over
+from browser* in the window app). The clipboard is cleared afterwards. Repeat only when the site logs
+you out.
+
 **Not possible:** copy-protected videos (DRM), e.g. Netflix, Disney+ or Prime Video – not even with a
 login. vd tells you right away.
 

@@ -57,6 +57,11 @@ Fenster schließen, der Download startet neu. Fragt eine Seite direkt nach **Ben
 Passwort** (z. B. Uni-Server), gibst du sie im Terminal ein; sie gehen nur an diese Seite und werden
 verschlüsselt gespeichert. `vd login` zeigt gespeicherte Logins, `vd logout SEITE` löscht sie.
 
+**Seiten, die nur einen Login gleichzeitig erlauben** (Einloggen mit vd wirft dich im Browser raus):
+Übernimm stattdessen den Login deines Browsers. Im Browser die Seite öffnen (eingeloggt), Erweiterung
+*Get cookies.txt LOCALLY* → **Copy**, dann `vd login --import` (oder im Programm *Logins... → Aus Browser
+übernehmen*). Die Zwischenablage wird danach geleert. Nur wiederholen, wenn die Seite dich ausloggt.
+
 **Nicht möglich:** kopiergeschützte Videos (DRM), z. B. Netflix, Disney+ oder Prime Video.
 
 ## Deinstallieren

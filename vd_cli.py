@@ -47,7 +47,7 @@ from site_auth import (
 )
 
 APP_NAME = "mp4-downloader"
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 REPO_ZIP_URL = "https://github.com/GamirHD/mp4-downloader/archive/refs/heads/main.zip"
 LATEST_RELEASE_API = "https://api.github.com/repos/GamirHD/mp4-downloader/releases/latest"
 SETUP_URL = "https://github.com/GamirHD/mp4-downloader/releases/latest/download/mp4-downloader-setup.exe"
@@ -754,7 +754,29 @@ class _VerboseLogger:
         print(message, file=sys.stderr)
 
 
+def import_login_command(url: str | None) -> int:
+    from cookie_import import CookieImportError, clear_clipboard, import_cookies, read_clipboard_text
+
+    try:
+        text = read_clipboard_text()
+    except CookieImportError:
+        warn(t("import_clipboard_error"))
+        return 1
+    try:
+        sites = import_cookies(login_profile_dir(), text, url)
+    except CookieImportError:
+        warn(t("import_none"))
+        return 1
+    clear_clipboard()
+    for site, count in sites.items():
+        say(t("import_done", site=site, count=count))
+    return 0
+
+
 def login_command(args: argparse.Namespace) -> int:
+    if args.import_login:
+        urls = normalize_url_args([args.url]) if args.url else []
+        return import_login_command(urls[0] if urls else None)
     if not args.url:
         sites = sorted({site for site, _count in saved_sites(login_profile_dir())} | set(credential_sites(login_profile_dir())))
         if not sites:
@@ -954,6 +976,7 @@ def build_parser() -> argparse.ArgumentParser:
 def build_command_parsers() -> dict[str, argparse.ArgumentParser]:
     login = argparse.ArgumentParser(prog="vd login", description=t("help.cmd_login"))
     login.add_argument("url", nargs="?", metavar="LINK")
+    login.add_argument("--import", dest="import_login", action="store_true", help=t("help.login_import"))
     logout = argparse.ArgumentParser(prog="vd logout", description=t("help.cmd_logout"))
     logout.add_argument("site", nargs="?", metavar=t("help.metavar_site"), help=t("help.cmd_logout_site"))
     settings = argparse.ArgumentParser(prog="vd settings", description=t("help.cmd_settings"))
