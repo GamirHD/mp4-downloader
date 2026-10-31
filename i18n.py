@@ -32,6 +32,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "saved": {"en": "Saved: {path}", "de": "Gespeichert: {path}"},
     "searching_page": {"en": "Looking for the video on the page...", "de": "Suche das Video auf der Seite..."},
     "error": {"en": "Error: {message}", "de": "Fehler: {message}"},
+    "network_retry": {
+        "en": "Connection problem - trying again in {seconds} s ({attempt}/{total})...",
+        "de": "Verbindungsproblem - neuer Versuch in {seconds} s ({attempt}/{total})...",
+    },
     "cancelled": {"en": "Cancelled.", "de": "Abgebrochen."},
     "failures": {"en": "{failed} of {total} downloads failed.", "de": "{failed} von {total} Downloads fehlgeschlagen."},
     "no_links": {

@@ -274,7 +274,7 @@ class OptionTests(unittest.TestCase):
     def test_mp3_options_use_audio_postprocessor(self) -> None:
         options = vd_cli.build_ydl_options("mp3", self.folder)
         self.assertEqual(options["format"], "bestaudio/best")
-        self.assertEqual(options["postprocessors"][0]["preferredcodec"], "mp3")
+        self.assertEqual(options["postprocessors"][-1]["preferredcodec"], "mp3")
 
     def test_output_is_quiet_and_named_after_title(self) -> None:
         options = vd_cli.build_ydl_options("1080p", self.folder)
@@ -308,6 +308,22 @@ class OptionTests(unittest.TestCase):
         selector = ydl.build_format_selector(vd_cli.QUALITY_OPTIONS["original"][1])
         picked = list(selector({"formats": sorted(formats, key=lambda f: f["tbr"]), "has_merged_format": True, "incomplete_formats": False}))
         self.assertEqual(picked[0]["format_id"], "313+140")
+
+    def test_patient_network_options_and_title_cleanup(self) -> None:
+        options = vd_cli.build_ydl_options("best", self.folder)
+        self.assertEqual(options["socket_timeout"], 60)
+        self.assertEqual(options["retries"], 20)
+        self.assertEqual(options["retry_sleep_functions"]["http"](n=10), 30)
+        if vd_cli.yt_dlp is None:
+            return
+        from yt_dlp.postprocessor.metadataparser import MetadataParserPP
+
+        parser = next(p for p in options["postprocessors"] if p["key"] == "MetadataParser")
+        pp = MetadataParserPP(vd_cli.yt_dlp.YoutubeDL({"quiet": True}), parser["actions"])
+        _, info = pp.run({"title": "Proaktivität &amp; Snowballing  Kurs &#39;1&#39;"})
+        self.assertEqual(info["title"], "Proaktivität & Snowballing Kurs '1'")
+        mp3 = vd_cli.build_ydl_options("mp3", self.folder)
+        self.assertEqual([p["key"] for p in mp3["postprocessors"]], ["MetadataParser", "FFmpegExtractAudio"])
 
     def test_cookie_file_and_referer_options(self) -> None:
         options = vd_cli.build_ydl_options("best", self.folder, cookie_file="cookies.txt", referer="https://example.com/kurs/")
@@ -651,6 +667,38 @@ class BrowserChoiceTests(unittest.TestCase):
         with mock.patch.object(browser_login, "browser_choices", return_value=browsers.browser_choices("")):
             browser_login._launch(playwright, profile, headless=True)
         self.assertTrue((profile / "Default").exists())
+
+
+class NetworkRetryTests(ConfigTestCase):
+    def test_network_errors_are_retried_then_succeed(self) -> None:
+        errors = [RuntimeError("ERROR: [download] Got error: timed out"), RuntimeError("Connection reset by peer")]
+
+        def fake_download_url(url, options, **kwargs):
+            if errors:
+                raise errors.pop(0)
+            return {"title": "Video"}
+
+        messages = []
+        with mock.patch.object(vd_cli, "download_url", side_effect=fake_download_url), mock.patch.object(
+            vd_cli.time, "sleep"
+        ) as sleep:
+            info = vd_cli.run_download("https://example.com/v", "best", self.folder, log=messages.append)
+        self.assertEqual(info["title"], "Video")
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 15])
+        self.assertIn("neuer Versuch in 5 s (2/4)", messages[0])
+
+    def test_gives_up_after_last_try_and_does_not_retry_other_errors(self) -> None:
+        with mock.patch.object(vd_cli, "download_url", side_effect=RuntimeError("timed out")) as dl, mock.patch.object(
+            vd_cli.time, "sleep"
+        ):
+            with self.assertRaises(RuntimeError):
+                vd_cli.run_download("https://example.com/v", "best", self.folder, log=lambda _t: None)
+        self.assertEqual(dl.call_count, 4)
+        with mock.patch.object(vd_cli, "download_url", side_effect=RuntimeError("HTTP Error 404: Not Found")) as dl:
+            with self.assertRaises(RuntimeError):
+                vd_cli.run_download("https://example.com/v", "best", self.folder, log=lambda _t: None)
+        self.assertEqual(dl.call_count, 1)
+        self.assertFalse(vd_cli.is_network_error("HTTP Error 403: Forbidden"))
 
 
 class ImportLoginTests(ConfigTestCase):

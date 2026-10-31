@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mp4-downloader"
-version = "2.2.0"
+version = "2.3.0"
 description = "Download videos from a link as MP4 or MP3 (yt-dlp)."
 readme = "README.md"
 requires-python = ">=3.10"
