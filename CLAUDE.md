@@ -9,5 +9,6 @@
 
 ## Projekt
 - Tests: `python -m unittest` (aus dem Repo-Ordner). Windows-Installer wird in jedem PR von GitHub Actions gebaut und getestet (Installieren, `vd selftest`, Deinstallieren) – vor dem Mergen prüfen.
+- HTTP-Login (401, z. B. Uni-Server wie decker.cs.tu-dortmund.de): `site_auth.py` fragt Benutzername/Passwort ab, schickt sie nur an dieselbe Website (Header pro Anfrage, `make_downloader`), speichert sie unter Windows per DPAPI.
 - Aufbau: `vd_cli.py` (CLI + gemeinsame Download-Logik `run_download`, die auch die GUI nutzt), `mp4_downloader.py` (GUI), `browser_login.py` (Login-Fenster, gespeicherte Cookies), `page_extractor.py` (eingebettete Videos finden).
 - Releases entstehen automatisch, wenn eine neue `version` in `pyproject.toml` (und `__version__` in `vd_cli.py`) auf `main` landet. Optionale Release-Notes: `.github/release-notes/vX.Y.Z.md`. Claude darf keine Releases/Tags direkt anlegen, nur Branches pushen und PRs mergen.

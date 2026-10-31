@@ -12,6 +12,7 @@ from unittest import mock
 import browser_login
 import browsers
 import page_extractor
+import site_auth
 import vd_cli
 
 
@@ -582,6 +583,99 @@ class BrowserChoiceTests(unittest.TestCase):
         with mock.patch.object(browser_login, "browser_choices", return_value=browsers.browser_choices("")):
             browser_login._launch(playwright, profile, headless=True)
         self.assertTrue((profile / "Default").exists())
+
+
+class HttpLoginTests(ConfigTestCase):
+    URL = "https://decker.example.edu/decks/lecture/deck.html#/title-slide"
+
+    def setUp(self) -> None:
+        super().setUp()
+        site_auth._session_credentials.clear()
+        self.addCleanup(site_auth._session_credentials.clear)
+
+    def test_recognizes_http_login_errors(self) -> None:
+        self.assertTrue(site_auth.is_http_auth_error("ERROR: [generic] deck: HTTP Error 401: Unauthorized"))
+        self.assertTrue(site_auth.is_http_auth_error("net::ERR_INVALID_AUTH_CREDENTIALS at https://x"))
+        self.assertFalse(site_auth.is_http_auth_error("HTTP Error 403: Forbidden"))
+        self.assertIn("Passwort", vd_cli.friendly_error("HTTP Error 401: Unauthorized"))
+
+    def test_credentials_belong_to_scheme_and_host_only(self) -> None:
+        self.assertEqual(site_auth.site_key(self.URL), "https://decker.example.edu")
+        creds = site_auth.Credentials("student", "pa:ss")
+        self.assertEqual(site_auth.basic_auth_header(creds), "Basic c3R1ZGVudDpwYTpzcw==")
+        self.assertEqual(
+            site_auth.playwright_http_credentials(self.URL, creds),
+            {"username": "student", "password": "pa:ss", "origin": "https://decker.example.edu"},
+        )
+
+    def test_auth_header_is_only_sent_to_the_same_website(self) -> None:
+        if vd_cli.yt_dlp is None:
+            self.skipTest("yt-dlp nicht installiert")
+        sent = []
+        with mock.patch.object(vd_cli.yt_dlp.YoutubeDL, "urlopen", lambda self, req: sent.append(req)):
+            ydl = vd_cli.make_downloader({"quiet": True}, site_auth.Credentials("u", "p"), self.URL)
+            ydl.urlopen("https://decker.example.edu/video.mp4")
+            ydl.urlopen("https://cdn.example.com/video.mp4")
+            ydl.urlopen("http://decker.example.edu/insecure.mp4")
+        self.assertEqual(sent[0].headers.get("Authorization"), "Basic dTpw")
+        self.assertNotIn("Authorization", sent[1].headers)
+        self.assertNotIn("Authorization", sent[2].headers)
+
+    def test_asks_for_credentials_retries_wrong_password_and_remembers(self) -> None:
+        seen = []
+
+        def fake_download_url(url, options, *, credentials=None, **kwargs):
+            seen.append(credentials)
+            if credentials is None or credentials.password != "richtig":
+                raise RuntimeError("ERROR: [generic] deck: Unable to download webpage: HTTP Error 401: Unauthorized")
+            return {"title": "Vorlesung"}
+
+        answers = [site_auth.Credentials("student", "falsch"), site_auth.Credentials("student", "richtig")]
+        asked = []
+        with mock.patch.object(vd_cli, "download_url", side_effect=fake_download_url), mock.patch.object(
+            site_auth, "can_store_securely", return_value=False
+        ):
+            info = vd_cli.run_download(
+                self.URL, "best", self.folder, log=lambda _t: None,
+                ask=lambda q: self.fail("kein Login-Fenster bei HTTP-Login"),
+                ask_credentials=lambda site, wrong: asked.append((site, wrong)) or answers.pop(0),
+            )
+            # second download of the same site: no question any more
+            vd_cli.run_download(self.URL, "best", self.folder, log=lambda _t: None,
+                                ask_credentials=lambda site, wrong: self.fail("erneut gefragt"))
+
+        self.assertEqual(info["title"], "Vorlesung")
+        self.assertEqual(asked, [("decker.example.edu", False), ("decker.example.edu", True)])
+        self.assertEqual([c.password if c else None for c in seen], [None, "falsch", "richtig", "richtig"])
+
+    def test_without_terminal_the_error_explains_what_is_needed(self) -> None:
+        error = RuntimeError("HTTP Error 401: Unauthorized")
+        with mock.patch.object(vd_cli, "download_url", side_effect=error):
+            with self.assertRaises(RuntimeError) as ctx:
+                vd_cli.run_download(self.URL, "best", self.folder, log=lambda _t: None)
+        self.assertIn("Benutzername und Passwort", str(ctx.exception))
+
+    def test_logout_forgets_credentials(self) -> None:
+        profile = vd_cli.login_profile_dir()
+        with mock.patch.object(site_auth, "can_store_securely", return_value=False):
+            site_auth.save_credentials(profile, self.URL, site_auth.Credentials("a", "b"))
+        self.assertIsNotNone(site_auth.load_credentials(profile, self.URL))
+        with redirect_stdout(io.StringIO()) as output:
+            vd_cli.main(["logout", "decker.example.edu"])
+        self.assertIn("gelöscht", output.getvalue())
+        self.assertIsNone(site_auth.load_credentials(profile, self.URL))
+
+    def test_credentials_file_never_contains_the_plain_password(self) -> None:
+        profile = vd_cli.login_profile_dir()
+        with mock.patch.object(site_auth, "can_store_securely", return_value=True), mock.patch.object(
+            site_auth, "_dpapi", side_effect=lambda data, protect: data[::-1]
+        ):
+            site_auth.save_credentials(profile, self.URL, site_auth.Credentials("student", "geheim123"))
+            site_auth._session_credentials.clear()
+            loaded = site_auth.load_credentials(profile, self.URL)
+        stored = (profile / site_auth.CREDENTIALS_FILE).read_text(encoding="utf-8")
+        self.assertNotIn("geheim123", stored)
+        self.assertEqual(loaded, site_auth.Credentials("student", "geheim123"))
 
 
 if __name__ == "__main__":

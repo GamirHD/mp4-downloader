@@ -7,9 +7,10 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any
 
+from site_auth import Credentials
 from vd_cli import (
     QUALITY_OPTIONS,
     add_history_entry,
@@ -562,6 +563,26 @@ class DownloaderApp(tk.Tk):
         answered.wait()
         return answer[0]
 
+    def _ask_credentials_from_worker(self, site: str, wrong: bool) -> Credentials | None:
+        """Ask for user name and password (HTTP login) on the GUI thread."""
+        answered = threading.Event()
+        answer: list[Credentials | None] = [None]
+        self.messages.put(("ask_credentials", (site, wrong, answered, answer)))
+        answered.wait()
+        return answer[0]
+
+    def _show_credentials_dialog(self, site: str, wrong: bool) -> Credentials | None:
+        intro = "Benutzername oder Passwort war falsch.\n\n" if wrong else ""
+        username = simpledialog.askstring(
+            APP_TITLE, f"{intro}{site} verlangt eine Anmeldung.\n\nBenutzername:", parent=self
+        )
+        if not username:
+            return None
+        password = simpledialog.askstring(APP_TITLE, f"Passwort für {username}:", show="*", parent=self)
+        if password is None:
+            return None
+        return Credentials(username.strip(), password)
+
     def _cancel_download(self) -> None:
         if not self.download_thread or not self.download_thread.is_alive():
             return
@@ -610,6 +631,7 @@ class DownloaderApp(tk.Tk):
                     progress_hooks=[hook],
                     log=log,
                     ask=self._ask_from_worker,
+                    ask_credentials=self._ask_credentials_from_worker,
                 )
             except DownloadCancelled:
                 self.messages.put(("cancelled", "Download abgebrochen."))
@@ -645,6 +667,12 @@ class DownloaderApp(tk.Tk):
                 question, answered, answer = payload
                 try:
                     answer[0] = messagebox.askyesno(APP_TITLE, question)
+                finally:
+                    answered.set()
+            elif message_type == "ask_credentials":
+                site, wrong, answered, answer = payload
+                try:
+                    answer[0] = self._show_credentials_dialog(site, wrong)
                 finally:
                     answered.set()
             elif message_type == "history_changed":

@@ -25,6 +25,7 @@ from typing import Any, Callable
 from urllib.parse import urljoin, urlparse
 
 from browsers import launch_headless
+from site_auth import Credentials, playwright_http_credentials
 
 MEDIA_URL_PATTERN = re.compile(
     r"""https?:(?:\\?/){2}[^\s"'<>()]+?\.(?:m3u8|mpd|mp4)(?:\?[^\s"'<>()]*)?(?=[\s"'<>()]|$)""",
@@ -211,6 +212,7 @@ def sniff_media_with_browser(
     *,
     timeout_seconds: float = 40,
     debug_dir: Path | None = None,
+    http_credentials: dict[str, str] | None = None,
     log: Callable[[str], None] = print,
 ) -> EmbeddedMedia | None:
     """Open the page headless and record the video stream it requests."""
@@ -258,6 +260,7 @@ def sniff_media_with_browser(
                 user_agent=user_agent,
                 viewport={"width": 1600, "height": 900},
                 locale="de-DE",
+                http_credentials=http_credentials,
             )
             cookies = _playwright_cookies(cookiejar, page_url)
             if cookies:
@@ -386,6 +389,7 @@ def find_embedded_media(
     *,
     use_browser: bool = True,
     debug_dir: Path | None = None,
+    credentials: Credentials | None = None,
     log: Callable[[str], None] = print,
 ) -> EmbeddedMedia | None:
     """Look for an embedded video on ``page_url`` using a yt-dlp ``YoutubeDL``."""
@@ -411,7 +415,11 @@ def find_embedded_media(
         return None
     try:
         media = sniff_media_with_browser(
-            page_url, getattr(downloader, "cookiejar", None), debug_dir=debug_dir, log=log
+            page_url,
+            getattr(downloader, "cookiejar", None),
+            debug_dir=debug_dir,
+            http_credentials=playwright_http_credentials(page_url, credentials),
+            log=log,
         )
     except Exception as exc:  # noqa: BLE001 - report and fall through to "nothing found"
         log(f"Die Video-Suche im Hintergrund-Browser ist fehlgeschlagen: {exc}")

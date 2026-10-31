@@ -66,6 +66,11 @@ vd login "LINK"     # vorab einloggen
 vd logout SEITE     # Login einer Seite löschen (ohne SEITE: alle)
 ```
 
+Manche Seiten (z. B. Uni-Server) fragen statt einer Login-Seite direkt nach **Benutzername und
+Passwort**. Dann fragt `vd` im Terminal danach (das Passwort wird nicht angezeigt). Die Zugangsdaten
+werden nur an diese eine Seite geschickt und unter Windows verschlüsselt für dein Windows-Konto
+gespeichert.
+
 Logins liegen nur in den Programm-Einstellungen (Windows: `%APPDATA%\mp4-downloader`),
 nie im Download-Ordner.
 
