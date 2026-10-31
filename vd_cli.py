@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,7 +48,7 @@ from site_auth import (
 )
 
 APP_NAME = "mp4-downloader"
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 REPO_ZIP_URL = "https://github.com/GamirHD/mp4-downloader/archive/refs/heads/main.zip"
 LATEST_RELEASE_API = "https://api.github.com/repos/GamirHD/mp4-downloader/releases/latest"
 SETUP_URL = "https://github.com/GamirHD/mp4-downloader/releases/latest/download/mp4-downloader-setup.exe"
@@ -93,6 +94,16 @@ LOGIN_ERROR_HINTS = (
     "login", "log in", "sign in", "signin", "anmeld", "einlogg", "cookies", "401", "403", "forbidden",
     "unauthorized", "private", "members", "premium", "subscri", "registered", "authenticat", "account",
     "kein eingebettetes video", "no embedded video",
+)
+NETWORK_ERROR_HINTS = (
+    "timed out", "timeout", "connection reset", "connection aborted", "connection refused",
+    "remote end closed", "incompleteread", "incomplete read", "temporary failure", "network is unreachable",
+    "errno 10054", "errno 10060", "errno 104", "broken pipe", "ssl: unexpected eof",
+)
+NETWORK_RETRY_WAITS = (5, 15, 30)  # seconds before the 2nd, 3rd and 4th try
+# HTML entities that some sites leave in titles (and therefore in file names)
+TITLE_FIXES = (
+    (r"&amp;", "&"), (r"&quot;", '"'), (r"&#0?39;|&apos;", "'"), (r"&lt;", "<"), (r"&gt;", ">"), (r"\s{2,}", " "),
 )
 NO_LOGIN_HELP_HINTS = ("drm", "ffmpeg", "dpapi", "no space", "kein speicherplatz")
 MAX_HISTORY_ENTRIES = 100
@@ -300,6 +311,11 @@ def friendly_error(raw_error: str) -> str:
     return text
 
 
+def is_network_error(error_text: str) -> bool:
+    lower = error_text.lower()
+    return "http error 4" not in lower and any(hint in lower for hint in NETWORK_ERROR_HINTS)
+
+
 def login_might_help(error_text: str) -> bool:
     """Guess whether logging in could fix a failed download."""
     lower = error_text.lower()
@@ -343,19 +359,36 @@ def build_ydl_options(
     logger: Any | None = None,
 ) -> dict[str, Any]:
     _, format_selector, output_kind = QUALITY_OPTIONS[quality_key]
+    def backoff(n: int) -> float:  # yt-dlp calls this with n=<retry number>
+        return min(2 ** n, 30)
+
     options: dict[str, Any] = {
         "format": format_selector,
         "outtmpl": str(folder / "%(title).200s.%(ext)s"),
         "noplaylist": not allow_playlist,
         "logger": logger or _SilentLogger(),
         "noprogress": True,
+        # Slow or briefly stalling servers (large files): wait longer and keep trying.
+        "socket_timeout": 60,
+        "retries": 20,
+        "fragment_retries": 20,
+        "retry_sleep_functions": {"http": backoff, "fragment": backoff},
+        "postprocessors": [],
     }
+    if yt_dlp is not None:
+        from yt_dlp.postprocessor.metadataparser import MetadataParserPP
+
+        options["postprocessors"].append({
+            "key": "MetadataParser",
+            "when": "pre_process",
+            "actions": [(MetadataParserPP.Actions.REPLACE, "title", search, replace) for search, replace in TITLE_FIXES],
+        })
     if output_kind == "mp4":
         options["merge_output_format"] = "mp4"
     else:
-        options["postprocessors"] = [
+        options["postprocessors"].append(
             {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}
-        ]
+        )
     ffmpeg_path = shutil.which("ffmpeg")
     if ffmpeg_path:
         options["ffmpeg_location"] = os.path.dirname(ffmpeg_path)
@@ -486,6 +519,17 @@ def run_download(
     auth: list[Credentials | None] = [load_credentials(login_profile_dir(), url) if use_saved_login else None]
 
     def attempt() -> dict[str, Any] | None:
+        for try_number, wait in enumerate((*NETWORK_RETRY_WAITS, None), start=1):
+            try:
+                return attempt_once()
+            except Exception as exc:  # noqa: BLE001 - retry short network outages
+                if wait is None or not is_network_error(str(exc)):
+                    raise
+                log(t("network_retry", seconds=wait, attempt=try_number + 1, total=len(NETWORK_RETRY_WAITS) + 1))
+                time.sleep(wait)
+        return None
+
+    def attempt_once() -> dict[str, Any] | None:
         with contextlib.ExitStack() as stack:
             used_cookie_file = cookie_file
             if use_saved_login:
