@@ -194,6 +194,32 @@ MANIFEST_CONTENT_TYPES = (
     "application/dash+xml",
 )
 LOGIN_HINT_PATTERN = re.compile(r"login|anmelden|sign-?in|signin|auth", re.IGNORECASE)
+PASSWORD_FIELD_PATTERN = re.compile(r"""<input\b[^>]*\btype\s*=\s*["']?password""", re.IGNORECASE)
+SEARCH_SECONDS = 20  # longest wait for a video stream
+NO_PLAYER_SECONDS = 5  # give up early when the page has no video player at all
+
+
+class LoginRequired(RuntimeError):
+    """The page shows a login form instead of the video."""
+
+    def __init__(self) -> None:
+        super().__init__("Die Seite zeigt eine Login-Seite statt des Videos.")
+
+
+def looks_like_login_page(page_html: str, final_url: str = "") -> bool:
+    if PASSWORD_FIELD_PATTERN.search(page_html or ""):
+        return True
+    return bool(LOGIN_HINT_PATTERN.search(urlparse(final_url).path)) if final_url else False
+
+
+PAGE_STATE_SCRIPT = """
+() => ({
+  players: document.querySelectorAll(
+    'video, audio, iframe, embed, object, [class*="player" i], [id*="player" i], [class*="video" i]'
+  ).length,
+  password: !!document.querySelector('input[type="password"]'),
+})
+"""
 
 
 def _strip_query(url: str) -> str:
@@ -210,7 +236,7 @@ def sniff_media_with_browser(
     page_url: str,
     cookiejar: Any = None,
     *,
-    timeout_seconds: float = 40,
+    timeout_seconds: float = SEARCH_SECONDS,
     debug_dir: Path | None = None,
     http_credentials: dict[str, str] | None = None,
     log: Callable[[str], None] = print,
@@ -223,6 +249,7 @@ def sniff_media_with_browser(
         return None
 
     found: list[str] = []
+    manifests: set[str] = set()  # recognized by content type (address may lack .m3u8)
     request_log: list[str] = []
     segments_seen = 0
 
@@ -245,12 +272,14 @@ def sniff_media_with_browser(
         except Exception:  # noqa: BLE001 - headers may be unavailable
             content_type = ""
         if content_type in MANIFEST_CONTENT_TYPES:
+            manifests.add(url)
             remember(url)
         if debug_dir is not None:
             request_log.append(f"{response.status}  {content_type or '-':<32}  {_strip_query(url)}")
 
     title = None
     final_url = page_url
+    login_page = False
     verbose = debug_dir is not None
     with sync_playwright() as playwright:
         browser = _launch_browser(playwright, log)
@@ -273,20 +302,27 @@ def sniff_media_with_browser(
             page.goto(page_url, wait_until="domcontentloaded", timeout=int(timeout_seconds * 1000))
 
             def has_manifest() -> bool:
-                return any(_media_rank(u)[0] < 2 for u in found)
+                return bool(manifests) or any(_media_rank(u)[0] < 2 for u in found)
 
             waited = 0.0
             step = 0.5
             while waited < timeout_seconds and not has_manifest():
-                if waited in (3.0, 10.0, 20.0):
+                if waited in (1.5, 4.0, 8.0, 13.0):
                     _try_start_playback(page)
-                if waited in (6.0, 14.0, 26.0):
+                if waited in (2.5, 6.0, 10.0, 15.0):
                     _click_player(page)
+                if waited >= 1.0 and waited % 1 == 0 and not found:
+                    state = _page_state(page)
+                    if state.get("password"):
+                        login_page = True
+                        break
+                    if waited >= NO_PLAYER_SECONDS and not state.get("players") and not segments_seen:
+                        break  # nothing on this page that could play a video
                 page.wait_for_timeout(int(step * 1000))
                 waited += step
             # Give the player a moment to request the master playlist too.
             if found:
-                page.wait_for_timeout(1500)
+                page.wait_for_timeout(1000)
 
             try:
                 title = page.title()
@@ -305,8 +341,17 @@ def sniff_media_with_browser(
                 log("Das sieht nach einer Login-Seite aus: die Cookies sind abgelaufen oder fehlen.")
         if verbose and segments_seen:
             log(f"Es wurden {segments_seen} Video-Teile geladen, aber keine Playlist erkannt.")
+        if login_page or looks_like_login_page("", final_url):
+            raise LoginRequired()
         return None
     return EmbeddedMedia(page_url=page_url, title=clean_title(title), media_urls=sort_media_urls(found))
+
+
+def _page_state(page: Any) -> dict[str, Any]:
+    try:
+        return page.evaluate(PAGE_STATE_SCRIPT) or {}
+    except Exception:  # noqa: BLE001 - page is navigating
+        return {"players": 1}
 
 
 def _write_debug(
@@ -394,8 +439,10 @@ def find_embedded_media(
 ) -> EmbeddedMedia | None:
     """Look for an embedded video on ``page_url`` using a yt-dlp ``YoutubeDL``."""
     page_html = ""
+    final_url = page_url
     try:
         response = downloader.urlopen(page_url)
+        final_url = getattr(response, "url", None) or page_url
         charset = response.headers.get_content_charset() if hasattr(response.headers, "get_content_charset") else None
         page_html = response.read().decode(charset or "utf-8", errors="replace")
     except Exception as exc:  # noqa: BLE001 - try the browser fallback anyway
@@ -410,6 +457,8 @@ def find_embedded_media(
         media_urls = find_media_in_html(page_html, page_url)
         if media_urls:
             return EmbeddedMedia(page_url=page_url, title=extract_page_title(page_html), media_urls=media_urls)
+        if looks_like_login_page(page_html, final_url):
+            raise LoginRequired()
 
     if not use_browser:
         return None
@@ -421,6 +470,8 @@ def find_embedded_media(
             http_credentials=playwright_http_credentials(page_url, credentials),
             log=log,
         )
+    except LoginRequired:
+        raise
     except Exception as exc:  # noqa: BLE001 - report and fall through to "nothing found"
         log(f"Die Video-Suche im Hintergrund-Browser ist fehlgeschlagen: {exc}")
         media = None

@@ -330,6 +330,28 @@ class PageExtractorTests(unittest.TestCase):
         self.assertEqual(page_extractor.clean_title("Mein Kurs Video | Example"), "Mein Kurs Video")
         self.assertEqual(page_extractor.clean_title("Nur ein Titel"), "Nur ein Titel")
 
+    def test_login_pages_are_recognized(self) -> None:
+        form = '<form><input name="user"><input type="password" name="pw"></form>'
+        self.assertTrue(page_extractor.looks_like_login_page(form))
+        self.assertTrue(page_extractor.looks_like_login_page("<p>x</p>", "https://example.com/login?next=/kurs"))
+        self.assertFalse(page_extractor.looks_like_login_page("<p>Kurs</p>", "https://example.com/kurse/1"))
+
+    def test_login_page_stops_the_search_immediately(self) -> None:
+        class FakeResponse:
+            url = "https://example.com/wp-login.php"
+            headers = {}
+
+            def read(self):
+                return b'<html><input type="password"></html>'
+
+        downloader = mock.MagicMock()
+        downloader.urlopen.return_value = FakeResponse()
+        with mock.patch.object(page_extractor, "sniff_media_with_browser") as sniff:
+            with self.assertRaises(page_extractor.LoginRequired) as ctx:
+                page_extractor.find_embedded_media(downloader, self.PAGE, log=lambda _t: None)
+        sniff.assert_not_called()
+        self.assertTrue(vd_cli.login_might_help(str(ctx.exception)))
+
     def test_segment_files_are_not_media_candidates(self) -> None:
         self.assertFalse(page_extractor.is_media_url("https://cdn.example/seg-20-v1-a1.mp4"))
         self.assertTrue(page_extractor.is_media_url("https://cdn.example/index.m3u8?t=1"))

@@ -46,7 +46,7 @@ from site_auth import (
 )
 
 APP_NAME = "mp4-downloader"
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 REPO_ZIP_URL = "https://github.com/GamirHD/mp4-downloader/archive/refs/heads/main.zip"
 LATEST_RELEASE_API = "https://api.github.com/repos/GamirHD/mp4-downloader/releases/latest"
 SETUP_URL = "https://github.com/GamirHD/mp4-downloader/releases/latest/download/mp4-downloader-setup.exe"
