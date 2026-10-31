@@ -56,8 +56,9 @@ Einfach den Link wie immer eingeben. Braucht die Seite einen Login, fragt `vd`:
 example.com braucht vermutlich einen Login. Jetzt einloggen? [J/n]
 ```
 
-Mit **Enter** öffnet sich ein Browserfenster: einloggen, Fenster schließen – der Download startet
-automatisch neu. Der Login wird pro Seite gespeichert und beim nächsten Mal von selbst verwendet.
+Mit **Enter** öffnet sich ein Browserfenster (dein Standardbrowser, z. B. Brave oder Chrome –
+sonst Edge): einloggen, Fenster schließen – der Download startet automatisch neu. Das Fenster
+nutzt ein eigenes Profil, deine normalen Browser-Logins bleiben unberührt. Der Login wird pro Seite gespeichert und beim nächsten Mal von selbst verwendet.
 
 ```powershell
 vd login            # Seiten mit gespeichertem Login anzeigen

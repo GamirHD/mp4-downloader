@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 import browser_login
+import browsers
 import page_extractor
 import vd_cli
 
@@ -525,6 +526,62 @@ class LoginTests(ConfigTestCase):
                 vd_cli.run_download("https://example.com/x/", "best", self.folder, cookie_file="my.txt",
                                     log=lambda _t: None, ask=lambda q: self.fail(q))
         self.assertTrue(dl.call_args.args[1]["cookiefile"].endswith("my.txt"))
+
+
+class BrowserChoiceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+
+    def fake_exe(self, name: str) -> str:
+        path = Path(self.temp.name) / name
+        path.write_text("", encoding="utf-8")
+        return str(path)
+
+    def test_chromium_default_browser_comes_first(self) -> None:
+        brave = self.fake_exe("brave.exe")
+        choices = browsers.browser_choices(brave)
+        self.assertEqual([c.name for c in choices], ["Brave", "Edge", "Chrome", "Chromium"])
+        self.assertEqual(choices[0].launch_kwargs, {"executable_path": brave})
+        self.assertEqual(choices[0].key, f"exe:{brave}")
+
+    def test_firefox_or_missing_default_falls_back_to_edge(self) -> None:
+        for default in (self.fake_exe("firefox.exe"), str(Path(self.temp.name) / "brave.exe.missing"), ""):
+            self.assertEqual(browsers.browser_choices(default)[0].name, "Edge")
+
+    def test_registry_command_is_parsed(self) -> None:
+        self.assertEqual(
+            browsers._first_token('"C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe" --single-argument %1'),
+            "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+        )
+
+    def test_login_profile_is_renewed_when_default_browser_changed(self) -> None:
+        profile = Path(self.temp.name) / "profile"
+        profile.mkdir()
+        (profile / browser_login.CHANNEL_FILE).write_text("msedge", encoding="utf-8")
+        (profile / browser_login.COOKIES_FILE).write_text("[]", encoding="utf-8")
+        (profile / "Default").mkdir()
+        brave = self.fake_exe("brave.exe")
+        launched = []
+        playwright = mock.MagicMock()
+        playwright.chromium.launch_persistent_context.side_effect = lambda *a, **k: launched.append(k) or "ctx"
+
+        with mock.patch.object(browser_login, "browser_choices", return_value=browsers.browser_choices(brave)):
+            self.assertEqual(browser_login._launch(playwright, profile, headless=False), "ctx")
+
+        self.assertEqual(launched[0]["executable_path"], brave)
+        self.assertFalse((profile / "Default").exists())
+        self.assertTrue((profile / browser_login.COOKIES_FILE).exists())
+        self.assertEqual((profile / browser_login.CHANNEL_FILE).read_text(encoding="utf-8"), f"exe:{brave}")
+
+    def test_same_browser_keeps_profile(self) -> None:
+        profile = Path(self.temp.name) / "profile"
+        (profile / "Default").mkdir(parents=True)
+        (profile / browser_login.CHANNEL_FILE).write_text("msedge", encoding="utf-8")
+        playwright = mock.MagicMock()
+        with mock.patch.object(browser_login, "browser_choices", return_value=browsers.browser_choices("")):
+            browser_login._launch(playwright, profile, headless=True)
+        self.assertTrue((profile / "Default").exists())
 
 
 if __name__ == "__main__":

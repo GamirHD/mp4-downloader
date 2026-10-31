@@ -4,7 +4,7 @@
 - Windows-Rechner, Kommandozeile ist **PowerShell** (Befehle immer für PowerShell angeben, z. B. `Stop-Process -Name brave -Force` statt `taskkill`; `taskkill` ist dort nicht im PATH).
 - Browser: **Brave**. Cookies aus Chromium-Browsern lassen sich unter Windows nicht auslesen (DPAPI/App-Bound Encryption), deshalb nutzt vd ein eigenes Login-Fenster: braucht eine Seite einen Login, fragt `vd "LINK"` nach; gespeicherte Logins pro Seite (`vd login`, `vd logout SEITE`).
 - Bevorzugt einfache Bedienung: wenige Befehle, kurze deutsche Ausgaben, Installation per Einzeiler, Aktualisieren mit `vd update`.
-- Windows-Installation über `mp4-downloader-setup.exe` (Inno Setup, ohne Admin, nach `%LOCALAPPDATA%\Programs\mp4-downloader`): Programm mit Oberfläche + `vd.exe` im PATH, Eintrag unter *Apps*. `vd update` lädt dort den neuesten Installer. Playwright ist gebündelt und nutzt das installierte Edge.
+- Windows-Installation über `mp4-downloader-setup.exe` (Inno Setup, ohne Admin, nach `%LOCALAPPDATA%\Programs\mp4-downloader`): Programm mit Oberfläche + `vd.exe` im PATH, Eintrag unter *Apps*. `vd update` lädt dort den neuesten Installer. Playwright ist gebündelt; Login-Fenster und Video-Suche nutzen den Standardbrowser, wenn er Chromium-basiert ist (bei ihm Brave, eigenes Profil), sonst Edge (`browsers.py`).
 - Antworten auf Deutsch.
 
 ## Projekt
