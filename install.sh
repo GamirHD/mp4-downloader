@@ -54,13 +54,14 @@ PLIST
 else
   apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
   mkdir -p "$apps_dir"
+  "$venv_dir/bin/python" -c "import app_icon; app_icon.write_png('$install_root/icon.png')"
   cat > "$apps_dir/mp4-downloader.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=$app_name
 Comment=Download videos from a link as MP4 or MP3
 Exec="$venv_dir/bin/vd-gui"
-Icon=video-x-generic
+Icon=$install_root/icon.png
 Terminal=false
 Categories=AudioVideo;Network;
 DESKTOP

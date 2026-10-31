@@ -245,6 +245,7 @@ Beispiele:
     "gui.open": {"en": "Open", "de": "Öffnen"},
     "gui.playlist": {"en": "Whole playlist", "de": "Ganze Playlist"},
     "gui.download": {"en": "Download", "de": "Herunterladen"},
+    "gui.activity": {"en": "Activity", "de": "Protokoll"},
     "gui.cancel": {"en": "Cancel", "de": "Abbrechen"},
     "gui.ready": {"en": "Ready", "de": "Bereit"},
     "gui.running": {"en": "Downloading...", "de": "Lädt herunter..."},

@@ -24,6 +24,7 @@ DisableDirPage=yes
 DisableReadyPage=yes
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile=assets\app.ico
 ChangesEnvironment=yes
 CloseApplications=yes
 OutputDir=dist

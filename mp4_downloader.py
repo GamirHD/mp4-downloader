@@ -77,8 +77,12 @@ class DownloaderApp(tk.Tk):
         self.links_text: tk.Text | None = None
         self.log_text: tk.Text | None = None
 
-        self.geometry("780x640")
-        self.minsize(640, 540)
+        self._set_window_icon()
+        width, height = 760, 600
+        x = max((self.winfo_screenwidth() - width) // 2, 0)
+        y = max((self.winfo_screenheight() - height) // 3, 0)
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.minsize(620, 520)
         self._configure_style()
         self._build_ui()
         self.after(100, self._poll_messages)
@@ -86,6 +90,15 @@ class DownloaderApp(tk.Tk):
             self._log(t("ytdlp_missing"))
 
     # ------------------------------------------------------------------ layout
+
+    def _set_window_icon(self) -> None:
+        try:
+            import app_icon
+
+            self._icon = tk.PhotoImage(data=app_icon.PNG_BASE64)
+            self.iconphoto(True, self._icon)
+        except Exception:  # noqa: BLE001 - cosmetic only
+            pass
 
     def _configure_style(self) -> None:
         style = ttk.Style(self)
@@ -95,7 +108,9 @@ class DownloaderApp(tk.Tk):
             style.theme_use("clam")
         style.configure("Title.TLabel", font=("Segoe UI", 15, "bold") if os.name == "nt" else ("TkDefaultFont", 15, "bold"))
         style.configure("Muted.TLabel", foreground=MUTED)
-        style.configure("Section.TLabel", font=("Segoe UI", 10, "bold") if os.name == "nt" else ("TkDefaultFont", 10, "bold"))
+        bold = ("Segoe UI", 10, "bold") if os.name == "nt" else ("TkDefaultFont", 10, "bold")
+        style.configure("Section.TLabel", font=bold)
+        style.configure("Primary.TButton", font=bold, padding=(18, 4))
 
     def _build_ui(self) -> None:
         """(Re)build all widgets, e.g. after switching the language. Keeps links and log."""
@@ -108,8 +123,8 @@ class DownloaderApp(tk.Tk):
         root = ttk.Frame(self, padding=PAD)
         root.pack(fill="both", expand=True)
         root.columnconfigure(0, weight=1)
-        root.rowconfigure(1, weight=1)
-        root.rowconfigure(5, weight=1)
+        root.rowconfigure(1, weight=3)
+        root.rowconfigure(6, weight=2)
 
         # Header: title, language, logins
         header = ttk.Frame(root)
@@ -136,7 +151,7 @@ class DownloaderApp(tk.Tk):
         ttk.Button(buttons, text=t("gui.clear"), command=lambda: self.links_text.delete("1.0", "end")).pack(
             side="left", padx=(6, 0)
         )
-        self.links_text = self._text(links_frame, height=6)
+        self.links_text = self._text(links_frame, height=5)
         self.links_text.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
         if links:
             self.links_text.insert("1.0", links)
@@ -175,20 +190,24 @@ class DownloaderApp(tk.Tk):
         ttk.Label(actions, textvariable=self.status_var, style="Muted.TLabel").grid(row=0, column=0, sticky="w")
         self.cancel_button = ttk.Button(actions, text=t("gui.cancel"), command=self._cancel_download)
         self.cancel_button.grid(row=0, column=1, padx=(0, 8))
-        self.download_button = ttk.Button(actions, text=t("gui.download"), command=self._start_download)
+        self.download_button = ttk.Button(
+            actions, text=t("gui.download"), command=self._start_download, style="Primary.TButton"
+        )
         self.download_button.grid(row=0, column=2)
         ttk.Progressbar(root, variable=self.progress_var, maximum=100).grid(
             row=4, column=0, sticky="ew", pady=(8, 0)
         )
 
-        # Log
-        self.log_text = self._text(root, height=8, readonly=True)
-        self.log_text.grid(row=5, column=0, sticky="nsew", pady=(8, 0))
+        # Activity log
+        log_header = ttk.Frame(root)
+        log_header.grid(row=5, column=0, sticky="ew", pady=(PAD, 0))
+        log_header.columnconfigure(0, weight=1)
+        ttk.Label(log_header, text=t("gui.activity"), style="Section.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(log_header, text=f"vd {__version__}", style="Muted.TLabel").grid(row=0, column=1, sticky="e")
+        self.log_text = self._text(root, height=4, readonly=True)
+        self.log_text.grid(row=6, column=0, sticky="nsew", pady=(6, 0))
         if log:
             self._append_log(log)
-
-        version = ttk.Label(root, text=f"vd {__version__}", style="Muted.TLabel")
-        version.grid(row=6, column=0, sticky="e", pady=(6, 0))
 
         running = bool(self.download_thread and self.download_thread.is_alive())
         self._set_running(running)
