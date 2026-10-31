@@ -1,17 +1,12 @@
+# mp4-downloader entfernen:
+#   irm https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/uninstall.ps1 | iex
 $ErrorActionPreference = "Stop"
 
-$installRoot = Join-Path $env:LOCALAPPDATA "mp4-downloader"
-
-Write-Host "Deinstalliere mp4-downloader..."
-
+Write-Host "Entferne mp4-downloader..."
 if (Get-Command python -ErrorAction SilentlyContinue) {
-    python -m pip uninstall -y mp4-downloader
-} else {
-    Write-Host "Python wurde nicht gefunden. Ueberspringe pip uninstall."
+    python -m pip uninstall -y --quiet mp4-downloader
 }
-
-if (Test-Path $installRoot) {
-    Remove-Item $installRoot -Recurse -Force
+foreach ($dir in @((Join-Path $env:APPDATA "mp4-downloader"), (Join-Path $env:LOCALAPPDATA "mp4-downloader"))) {
+    if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
 }
-
-Write-Host "Fertig."
+Write-Host "Fertig. Einstellungen und gespeicherte Logins wurden ebenfalls gelöscht."

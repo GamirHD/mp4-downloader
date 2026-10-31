@@ -7,3 +7,4 @@ build/
 *.spec
 .pytest_cache/
 downloads/
+*.egg-info/

@@ -10,22 +10,16 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
-from browser_login import BrowserLoginError, interactive_login, saved_cookies_for, site_of
-from cookie_input import CookieInputError, cookies_text_to_netscape, temporary_cookie_file
 from vd_cli import (
-    BROWSER_CHOICES,
     QUALITY_OPTIONS,
     add_history_entry,
-    build_ydl_options,
-    download_url,
-    login_might_help,
-    login_profile_dir,
-    saved_login_cookie_text,
+    downloaded_file,
     extract_urls_from_text,
     friendly_error,
     load_history,
     load_settings,
     no_urls_found_message,
+    run_download,
     save_settings,
 )
 
@@ -35,7 +29,7 @@ except ImportError:  # pragma: no cover - handled in GUI startup
     yt_dlp = None
 
 
-APP_TITLE = "MP4/MP3 Downloader"
+APP_TITLE = "Video-Downloader"
 
 BG_COLOR = "#f4f7fb"
 SURFACE_COLOR = "#ffffff"
@@ -53,14 +47,6 @@ GUI_QUALITY_KEYS = list(QUALITY_OPTIONS)
 GUI_QUALITY_LABELS = {key: values[0] for key, values in QUALITY_OPTIONS.items()}
 GUI_QUALITY_CHOICES = [GUI_QUALITY_LABELS[key] for key in GUI_QUALITY_KEYS]
 GUI_QUALITY_BY_LABEL = dict(zip(GUI_QUALITY_CHOICES, GUI_QUALITY_KEYS))
-GUI_NO_BROWSER_LABEL = "Automatisch (gespeicherter Login)"
-GUI_CLIPBOARD_LABEL = "Aus Zwischenablage (cookies.txt)"
-GUI_BROWSER_CHOICES = [
-    GUI_NO_BROWSER_LABEL,
-    GUI_CLIPBOARD_LABEL,
-    *(name.capitalize() for name in BROWSER_CHOICES),
-]
-GUI_BROWSER_BY_LABEL = {name.capitalize(): name for name in BROWSER_CHOICES}
 
 
 def enable_high_dpi_rendering() -> None:
@@ -81,25 +67,6 @@ class DownloadCancelled(RuntimeError):
     pass
 
 
-class QueueLogger:
-    def __init__(self, messages: queue.Queue[tuple[str, Any]]) -> None:
-        self.messages = messages
-
-    def debug(self, message: str) -> None:
-        if message.startswith("[debug]"):
-            return
-        self.messages.put(("log", message))
-
-    def info(self, message: str) -> None:
-        self.messages.put(("log", message))
-
-    def warning(self, message: str) -> None:
-        self.messages.put(("log", f"Warnung: {message}"))
-
-    def error(self, message: str) -> None:
-        self.messages.put(("log", f"Fehler: {message}"))
-
-
 class DownloaderApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -114,15 +81,7 @@ class DownloaderApp(tk.Tk):
         self.settings = load_settings()
 
         self.folder_var = tk.StringVar(value=self.settings["download_dir"])
-        self.quality_var = tk.StringVar(value=GUI_QUALITY_CHOICES[0])
-        saved_browser = self.settings.get("cookies_from_browser")
-        if self.settings.get("cookies_from_clipboard"):
-            initial_login = GUI_CLIPBOARD_LABEL
-        elif saved_browser:
-            initial_login = saved_browser.capitalize()
-        else:
-            initial_login = GUI_NO_BROWSER_LABEL
-        self.browser_var = tk.StringVar(value=initial_login)
+        self.quality_var = tk.StringVar(value=GUI_QUALITY_LABELS[self.settings["quality"]])
         self.status_var = tk.StringVar(value="Bereit")
         self.progress_var = tk.DoubleVar(value=0)
         self.queued_urls: list[str] = []
@@ -133,13 +92,12 @@ class DownloaderApp(tk.Tk):
         self.footer_frame: ttk.Frame | None = None
         self.primary_action_button: tk.Button | None = None
         self.cancel_button: tk.Button | None = None
-        self.login_button: tk.Button | None = None
 
         self._build_ui()
         self.after(100, self._poll_messages)
 
         if yt_dlp is None:
-            self._set_idle_error("yt-dlp ist nicht installiert. Bitte `pip install -r requirements.txt` ausführen.")
+            self._set_idle_error("yt-dlp fehlt. Bitte das Programm neu installieren.")
 
     def _configure_tk_scaling(self) -> None:
         try:
@@ -376,27 +334,16 @@ class DownloaderApp(tk.Tk):
         self._button(options, "Wählen", self._choose_folder).grid(row=2, column=2, pady=(12, 0))
         self._button(options, "Öffnen", self._open_folder).grid(row=2, column=3, padx=(8, 0), pady=(12, 0))
 
-        ttk.Label(options, text="Browser-Login", style="Surface.TLabel").grid(row=3, column=0, sticky="w", pady=(12, 0))
-        browser_box = ttk.Combobox(
-            options,
-            textvariable=self.browser_var,
-            values=GUI_BROWSER_CHOICES,
-            state="readonly",
-            width=22,
-        )
-        browser_box.grid(row=3, column=1, sticky="ew", padx=(10, 0), pady=(12, 0))
-        self.login_button = self._button(options, "Einloggen…", self._start_login)
-        self.login_button.grid(row=3, column=2, columnspan=2, sticky="w", padx=(10, 0), pady=(12, 0))
         ttk.Label(
             options,
             text=(
-                "Für Seiten mit Login (z. B. Kurse): einmal auf „Einloggen…“ klicken, im Fenster "
-                "einloggen und es schließen. Danach wird der Login automatisch verwendet."
+                "Braucht eine Seite einen Login, fragt das Programm nach und öffnet ein Fenster "
+                "zum Einloggen. Der Login wird danach automatisch verwendet."
             ),
             style="Surface.TLabel",
             foreground=MUTED_TEXT_COLOR,
             wraplength=460,
-        ).grid(row=4, column=1, columnspan=3, sticky="w", padx=(10, 0), pady=(4, 0))
+        ).grid(row=3, column=1, columnspan=3, sticky="w", padx=(10, 0), pady=(14, 0))
 
         self._button(self.footer_frame, "Zurück", self._show_links_step).grid(row=0, column=0, sticky="e", padx=(0, 8))
         self.primary_action_button = self._button(
@@ -574,9 +521,7 @@ class DownloaderApp(tk.Tk):
 
         urls = self._read_urls()
         folder = Path(self.folder_var.get()).expanduser()
-        quality = GUI_QUALITY_BY_LABEL.get(self.quality_var.get(), GUI_QUALITY_KEYS[0])
-        browser = GUI_BROWSER_BY_LABEL.get(self.browser_var.get())
-        use_clipboard = self.browser_var.get() == GUI_CLIPBOARD_LABEL
+        quality = GUI_QUALITY_BY_LABEL.get(self.quality_var.get(), self.settings["quality"])
 
         if yt_dlp is None:
             messagebox.showerror(APP_TITLE, "yt-dlp ist nicht installiert.")
@@ -591,23 +536,7 @@ class DownloaderApp(tk.Tk):
             return
 
         self.settings["download_dir"] = str(folder)
-        self.settings["use_download_archive"] = False
-        clipboard_cookies: str | None = None
-        if use_clipboard:
-            try:
-                clipboard_text = self.clipboard_get()
-            except tk.TclError:
-                clipboard_text = ""
-            try:
-                clipboard_cookies, _count = cookies_text_to_netscape(clipboard_text, urls[0])
-            except CookieInputError as exc:
-                messagebox.showwarning(APP_TITLE, str(exc))
-                return
-            self.clipboard_clear()
-            self.clipboard_append("")
-
-        self.settings["cookies_from_browser"] = browser
-        self.settings["cookies_from_clipboard"] = use_clipboard
+        self.settings["quality"] = quality
         save_settings(self.settings)
         self.cancel_requested.clear()
         self.progress_var.set(0)
@@ -620,7 +549,7 @@ class DownloaderApp(tk.Tk):
             self._log(f"Starte Batch-Download mit {len(urls)} Links.")
         self.download_thread = threading.Thread(
             target=self._download_worker,
-            args=(urls, folder, quality, browser, clipboard_cookies),
+            args=(urls, folder, quality),
             daemon=True,
         )
         self.download_thread.start()
@@ -633,32 +562,6 @@ class DownloaderApp(tk.Tk):
         answered.wait()
         return answer[0]
 
-    def _start_login(self) -> None:
-        if self.download_thread and self.download_thread.is_alive():
-            return
-        url = self.queued_urls[0] if self.queued_urls else ""
-        if not url:
-            messagebox.showwarning(APP_TITLE, "Bitte zuerst einen Link einfügen.")
-            return
-        self.login_button.configure(state="disabled")
-        self.status_var.set("Browserfenster offen: einloggen und Fenster schließen...")
-
-        def worker() -> None:
-            try:
-                count = interactive_login(url, login_profile_dir(), log=lambda _text: None)
-            except BrowserLoginError as exc:
-                self.messages.put(("login_done", f"Login nicht möglich: {exc}"))
-                return
-            except Exception as exc:  # noqa: BLE001 - user-facing GUI boundary
-                self.messages.put(("login_done", f"Login fehlgeschlagen: {exc}"))
-                return
-            if count:
-                self.messages.put(("login_done", f"Login gespeichert ({count} Cookies)."))
-            else:
-                self.messages.put(("login_done", "Keine Cookies gespeichert – warst du eingeloggt?"))
-
-        threading.Thread(target=worker, daemon=True).start()
-
     def _cancel_download(self) -> None:
         if not self.download_thread or not self.download_thread.is_alive():
             return
@@ -670,29 +573,7 @@ class DownloaderApp(tk.Tk):
         self.status_var.set("Abbruch wird vorbereitet...")
         self._log("Abbruch angefordert. Der aktuelle Download wird gestoppt.")
 
-    def _download_worker(
-        self,
-        urls: list[str],
-        folder: Path,
-        quality_key: str,
-        cookies_from_browser: str | None = None,
-        clipboard_cookies: str | None = None,
-    ) -> None:
-        if clipboard_cookies is not None:
-            self.messages.put(("log", "Cookies aus der Zwischenablage werden nur temporär verwendet."))
-            with temporary_cookie_file(clipboard_cookies) as cookie_file:
-                self._run_downloads(urls, folder, quality_key, None, str(cookie_file))
-            return
-        self._run_downloads(urls, folder, quality_key, cookies_from_browser, None)
-
-    def _run_downloads(
-        self,
-        urls: list[str],
-        folder: Path,
-        quality_key: str,
-        cookies_from_browser: str | None,
-        cookie_file: str | None,
-    ) -> None:
+    def _download_worker(self, urls: list[str], folder: Path, quality_key: str) -> None:
         def hook(data: dict[str, Any]) -> None:
             if self.cancel_requested.is_set():
                 raise DownloadCancelled("Download abgebrochen.")
@@ -704,25 +585,11 @@ class DownloaderApp(tk.Tk):
                     self.messages.put(("progress", min(downloaded / total * 100, 100)))
                 speed = data.get("_speed_str", "").strip()
                 eta = data.get("_eta_str", "").strip()
-                self.messages.put(("status", f"Lädt herunter... {speed} ETA {eta}".strip()))
+                details = f" {speed} · noch {eta}" if speed and eta else ""
+                self.messages.put(("status", f"Lädt herunter...{details}"))
             elif status == "finished":
                 self.messages.put(("progress", 100))
                 self.messages.put(("status", "Verarbeite Datei..."))
-                filename = data.get("filename")
-                if filename:
-                    self.messages.put(("log", f"Heruntergeladen: {filename}"))
-
-        def options_for(url_cookie_file: str | None) -> dict[str, Any]:
-            return build_ydl_options(
-                quality_key,
-                folder,
-                allow_playlist=False,
-                cookies_from_browser=cookies_from_browser,
-                cookie_file=url_cookie_file,
-                use_download_archive=False,
-                progress_hooks=[hook],
-                logger=QueueLogger(self.messages),
-            )
 
         def log(text: str) -> None:
             self.messages.put(("log", text))
@@ -733,61 +600,33 @@ class DownloaderApp(tk.Tk):
                 self.messages.put(("cancelled", "Download abgebrochen."))
                 return
             if len(urls) > 1:
-                self.messages.put(("log", f"[{index}/{len(urls)}] {url}"))
+                log(f"[{index}/{len(urls)}] {url}")
                 self.messages.put(("status", f"Download {index} von {len(urls)} läuft..."))
             try:
-                use_saved_login = cookie_file is None and cookies_from_browser is None
-
-                def attempt(url: str = url, use_saved_login: bool = use_saved_login) -> Any:
-                    saved = saved_login_cookie_text(url, log=log) if use_saved_login else None
-                    if saved:
-                        with temporary_cookie_file(saved) as saved_file:
-                            return download_url(url, options_for(str(saved_file)), log=log)
-                    return download_url(url, options_for(cookie_file), log=log)
-
-                try:
-                    info = attempt()
-                except DownloadCancelled:
-                    raise
-                except Exception as first_error:  # noqa: BLE001 - maybe a login helps
-                    if not (use_saved_login and login_might_help(str(first_error))):
-                        raise
-                    log(f"Fehler: {friendly_error(str(first_error))}")
-                    site = site_of(url)
-                    already = bool(saved_cookies_for(url, login_profile_dir()))
-                    question = (
-                        f"Der gespeicherte Login für {site} ist vielleicht abgelaufen.\n\nNeu einloggen und erneut versuchen?"
-                        if already
-                        else f"Vielleicht braucht {site} einen Login.\n\n"
-                        "Jetzt im Browserfenster einloggen (danach Fenster schließen) und erneut versuchen?"
-                    )
-                    if not self._ask_from_worker(question):
-                        raise
-                    self.messages.put(("status", "Browserfenster offen: einloggen und Fenster schließen..."))
-                    if not interactive_login(url, login_profile_dir(), log=log):
-                        raise
-                    log(f"Login für {site} gespeichert. Neuer Versuch...")
-                    info = attempt()
-                title = info.get("title", "Video") if isinstance(info, dict) else "Video"
-                add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
-                self.messages.put(("history_changed", None))
-                self.messages.put(("log", f"Fertig: {title}"))
+                info = run_download(
+                    url,
+                    quality_key,
+                    folder,
+                    progress_hooks=[hook],
+                    log=log,
+                    ask=self._ask_from_worker,
+                )
             except DownloadCancelled:
                 self.messages.put(("cancelled", "Download abgebrochen."))
                 return
             except Exception as exc:  # noqa: BLE001 - user-facing GUI boundary
-                message = friendly_error(str(exc))
                 failures.append(url)
-                self.messages.put(("log", f"Fehler bei {url}: {message}"))
+                log(f"Fehler: {friendly_error(str(exc))}")
+                continue
+            title = info.get("title", "Video") if isinstance(info, dict) else "Video"
+            add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
+            self.messages.put(("history_changed", None))
+            log(f"Gespeichert: {downloaded_file(info) or title}")
 
         if failures:
             self.messages.put(("batch_error", f"{len(failures)} von {len(urls)} Downloads fehlgeschlagen."))
             return
-
-        if len(urls) == 1:
-            self.messages.put(("done", "Download fertig."))
-        else:
-            self.messages.put(("done", f"Batch fertig: {len(urls)} Downloads abgeschlossen."))
+        self.messages.put(("done", "Download fertig." if len(urls) == 1 else f"Alle {len(urls)} Downloads fertig."))
 
     def _poll_messages(self) -> None:
         while True:
@@ -808,13 +647,6 @@ class DownloaderApp(tk.Tk):
                     answer[0] = messagebox.askyesno(APP_TITLE, question)
                 finally:
                     answered.set()
-            elif message_type == "login_done":
-                self.status_var.set(str(payload))
-                try:
-                    self.login_button.configure(state="normal")
-                except (AttributeError, tk.TclError):
-                    pass
-                messagebox.showinfo(APP_TITLE, str(payload))
             elif message_type == "history_changed":
                 self._refresh_history()
             elif message_type == "done":

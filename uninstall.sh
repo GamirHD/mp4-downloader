@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
+# mp4-downloader entfernen
 set -euo pipefail
-
-install_root="${XDG_DATA_HOME:-$HOME/.local/share}/mp4-downloader"
-bin_path="$HOME/.local/bin/vd"
-
-echo "Deinstalliere mp4-downloader..."
-
-if [[ -x "$install_root/venv/bin/python" ]]; then
-  "$install_root/venv/bin/python" -m pip uninstall -y mp4-downloader >/dev/null 2>&1 || true
-fi
-
-rm -rf "$install_root"
-rm -f "$bin_path"
-
-echo "Fertig."
+rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/mp4-downloader" "${XDG_CONFIG_HOME:-$HOME/.config}/mp4-downloader"
+rm -f "$HOME/.local/bin/vd"
+echo "mp4-downloader wurde entfernt (inklusive Einstellungen und gespeicherter Logins)."
