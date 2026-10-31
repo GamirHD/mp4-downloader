@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urljoin, urlparse
 
+from browsers import launch_headless
+
 MEDIA_URL_PATTERN = re.compile(
     r"""https?:(?:\\?/){2}[^\s"'<>()]+?\.(?:m3u8|mpd|mp4)(?:\?[^\s"'<>()]*)?(?=[\s"'<>()]|$)""",
     re.IGNORECASE,
@@ -198,19 +200,9 @@ def _strip_query(url: str) -> str:
 
 
 def _launch_browser(playwright: Any, log: Callable[[str], None]) -> Any:
-    """Prefer an installed Edge/Chrome (looks like a normal browser, no download needed)."""
-    errors: list[str] = []
-    for channel in ("msedge", "chrome", None):
-        try:
-            if channel:
-                return playwright.chromium.launch(headless=True, channel=channel)
-            return playwright.chromium.launch(headless=True)
-        except Exception as exc:  # noqa: BLE001 - try the next browser
-            errors.append(f"{channel or 'chromium'}: {str(exc).splitlines()[0]}")
-    raise RuntimeError(
-        "Kein Browser fuer die Video-Suche gefunden. Installiere Microsoft Edge oder Chrome, "
-        "oder fuehre `python -m playwright install chromium` aus. (" + "; ".join(errors) + ")"
-    )
+    """Hidden browser for the video search (default browser first, see browsers.py)."""
+    browser, _choice = launch_headless(playwright)
+    return browser
 
 
 def sniff_media_with_browser(

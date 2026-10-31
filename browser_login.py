@@ -1,7 +1,7 @@
 """Remember website logins in the app's own browser profile.
 
-``vd login URL`` opens a normal browser window with a profile that belongs to
-this app. The user logs in once and closes the window; later downloads use the
+``vd login URL`` opens a browser window (the default browser when it is
+Chromium-based, e.g. Brave) with a separate profile that belongs to this app. The user logs in once and closes the window; later downloads use the
 saved cookies for that website automatically. The cookies are taken from the
 browser while the window is open, so the Windows cookie encryption of
 Chrome/Brave/Edge is not a problem. They are stored only in the app's settings
@@ -18,11 +18,12 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse
+
+from browsers import LAUNCH_ARGS, browser_choices, no_browser_message
 from typing import Any, Callable, Iterator
 
 CHANNEL_FILE = "vd-browser.txt"
 COOKIES_FILE = "vd-cookies.json"
-BROWSER_CHANNELS = ("msedge", "chrome", "chromium")
 
 
 class BrowserLoginError(RuntimeError):
@@ -94,34 +95,45 @@ def _cookie_matches(cookie: dict[str, Any], url: str) -> bool:
     return True
 
 
+def _reset_profile(profile_dir: Path) -> None:
+    """Start a fresh browser profile but keep the saved logins (vd-cookies.json)."""
+    for item in profile_dir.iterdir():
+        if item.name == COOKIES_FILE:
+            continue
+        if item.is_dir():
+            shutil.rmtree(item, ignore_errors=True)
+        else:
+            item.unlink(missing_ok=True)
+
+
 def _launch(playwright: Any, profile_dir: Path, *, headless: bool) -> Any:
+    """Open the login profile in the preferred browser (normally the default browser)."""
+    candidates = browser_choices()
     saved_channel_file = profile_dir / CHANNEL_FILE
-    channels: tuple[str, ...] = BROWSER_CHANNELS
-    if saved_channel_file.is_file():
-        # The profile must always be opened with the browser that created it.
-        channels = (saved_channel_file.read_text(encoding="utf-8").strip() or "chromium",)
+    saved_key = saved_channel_file.read_text(encoding="utf-8").strip() if saved_channel_file.is_file() else ""
+    if saved_key and saved_key != candidates[0].key and profile_dir.is_dir():
+        # The profile was made by another browser (e.g. Edge before Brave became the
+        # default). Browser profiles are not interchangeable, so start a new one.
+        _reset_profile(profile_dir)
 
     errors: list[str] = []
-    for channel in channels:
+    for choice in candidates:
         try:
             context = playwright.chromium.launch_persistent_context(
                 str(profile_dir),
-                channel=None if channel == "chromium" else channel,
                 headless=headless,
                 no_viewport=not headless,
-                args=["--disable-blink-features=AutomationControlled"],
+                args=LAUNCH_ARGS,
                 ignore_default_args=["--enable-automation"],
+                **choice.launch_kwargs,
             )
         except Exception as exc:  # noqa: BLE001 - try the next browser
-            errors.append(f"{channel}: {str(exc).splitlines()[0]}")
+            errors.append(f"{choice.name}: {str(exc).splitlines()[0]}")
             continue
         profile_dir.mkdir(parents=True, exist_ok=True)
-        saved_channel_file.write_text(channel, encoding="utf-8")
+        saved_channel_file.write_text(choice.key, encoding="utf-8")
         return context
-    raise BrowserLoginError(
-        "Es konnte kein Browser gestartet werden. Installiere Microsoft Edge oder Chrome "
-        "oder fuehre `python -m playwright install chromium` aus. (" + "; ".join(errors) + ")"
-    )
+    raise BrowserLoginError(no_browser_message(errors))
 
 
 def interactive_login(url: str, profile_dir: Path, *, log: Callable[[str], None] = print) -> int:

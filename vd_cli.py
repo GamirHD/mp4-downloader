@@ -35,7 +35,7 @@ from browser_login import (
 from page_extractor import EmbeddedMedia, find_embedded_media, referer_headers
 
 APP_NAME = "mp4-downloader"
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 REPO_ZIP_URL = "https://github.com/GamirHD/mp4-downloader/archive/refs/heads/main.zip"
 LATEST_RELEASE_API = "https://api.github.com/repos/GamirHD/mp4-downloader/releases/latest"
 SETUP_URL = "https://github.com/GamirHD/mp4-downloader/releases/latest/download/mp4-downloader-setup.exe"
@@ -791,10 +791,11 @@ def selftest_command(_args: argparse.Namespace) -> int:
     try:
         from playwright.sync_api import sync_playwright
 
-        from page_extractor import _launch_browser
+        from browsers import launch_headless
 
         with sync_playwright() as playwright:
-            browser = _launch_browser(playwright, say)
+            browser, choice = launch_headless(playwright)
+            say(f"Browser: {choice.name}")
             page = browser.new_page()
             page.set_content("<title>vd-selftest</title>")
             title = page.title()
