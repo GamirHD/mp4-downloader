@@ -10,6 +10,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -33,8 +35,10 @@ from browser_login import (
 from page_extractor import EmbeddedMedia, find_embedded_media, referer_headers
 
 APP_NAME = "mp4-downloader"
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 REPO_ZIP_URL = "https://github.com/GamirHD/mp4-downloader/archive/refs/heads/main.zip"
+LATEST_RELEASE_API = "https://api.github.com/repos/GamirHD/mp4-downloader/releases/latest"
+SETUP_URL = "https://github.com/GamirHD/mp4-downloader/releases/latest/download/mp4-downloader-setup.exe"
 
 # Wistia and similar hosts offer the huge upload file as format "original";
 # it is skipped unless nothing else exists.
@@ -719,7 +723,53 @@ def history_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def is_installed_app() -> bool:
+    """True for the Windows app installed with mp4-downloader-setup.exe."""
+    return bool(getattr(sys, "frozen", False)) and os.name == "nt"
+
+
+def version_tuple(value: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.findall(r"\d+", value)[:3])
+
+
+def latest_release_version() -> str | None:
+    request = urllib.request.Request(LATEST_RELEASE_API, headers={"User-Agent": f"vd/{__version__}"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            tag = json.load(response).get("tag_name", "")
+    except Exception:  # noqa: BLE001 - offline or rate limited: just try the update
+        return None
+    return tag.lstrip("v") or None
+
+
+def update_installed_app() -> int:
+    latest = latest_release_version()
+    if latest and version_tuple(latest) <= version_tuple(__version__):
+        say(f"Du hast bereits die neueste Version ({__version__}).")
+        return 0
+    say(f"Lade Version {latest or 'neueste'}...")
+    setup_path = Path(tempfile.gettempdir()) / "mp4-downloader-setup.exe"
+    try:
+        request = urllib.request.Request(SETUP_URL, headers={"User-Agent": f"vd/{__version__}"})
+        with urllib.request.urlopen(request, timeout=60) as response, setup_path.open("wb") as file:
+            shutil.copyfileobj(response, file)
+    except Exception as exc:  # noqa: BLE001 - user-facing
+        warn(f"Download des Updates fehlgeschlagen: {exc}")
+        return 1
+    # The installer replaces this program, so it runs on its own after vd has exited.
+    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    subprocess.Popen(
+        [str(setup_path), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"],
+        creationflags=flags,
+        close_fds=True,
+    )
+    say("Das Update wird im Hintergrund installiert. In etwa einer Minute ist die neue Version bereit.")
+    return 0
+
+
 def update_command(_args: argparse.Namespace) -> int:
+    if is_installed_app():
+        return update_installed_app()
     say("Aktualisiere vd und yt-dlp...")
     command = [sys.executable, "-m", "pip", "install", "--upgrade", "--quiet", REPO_ZIP_URL, "yt-dlp"]
     result = subprocess.run(command, check=False)
@@ -728,6 +778,31 @@ def update_command(_args: argparse.Namespace) -> int:
         warn(f'  python -m pip install --upgrade "{REPO_ZIP_URL}" yt-dlp')
         return 1
     say("Fertig. Neue Version ist ab dem nächsten Aufruf aktiv.")
+    return 0
+
+
+def selftest_command(_args: argparse.Namespace) -> int:
+    """Hidden check used by the release build: are all parts bundled and working?"""
+    say(f"vd {__version__}")
+    say(f"yt-dlp {yt_dlp.version.__version__ if yt_dlp else 'FEHLT'}")
+    say(f"ffmpeg {'gefunden' if shutil.which('ffmpeg') else 'nicht gefunden'}")
+    if yt_dlp is None:
+        return 1
+    try:
+        from playwright.sync_api import sync_playwright
+
+        from page_extractor import _launch_browser
+
+        with sync_playwright() as playwright:
+            browser = _launch_browser(playwright, say)
+            page = browser.new_page()
+            page.set_content("<title>vd-selftest</title>")
+            title = page.title()
+            browser.close()
+    except Exception as exc:  # noqa: BLE001 - report everything
+        warn(f"Hintergrund-Browser: FEHLER {exc}")
+        return 1
+    say(f"Hintergrund-Browser: ok ({title})")
     return 0
 
 
@@ -783,7 +858,11 @@ def build_command_parsers() -> dict[str, argparse.ArgumentParser]:
     history = argparse.ArgumentParser(prog="vd history", description="Letzte Downloads.")
     history.add_argument("--clear", action="store_true", help="Verlauf löschen")
     update = argparse.ArgumentParser(prog="vd update", description="vd und yt-dlp aktualisieren.")
-    return {"login": login, "logout": logout, "settings": settings, "history": history, "update": update}
+    selftest = argparse.ArgumentParser(prog="vd selftest")
+    return {
+        "login": login, "logout": logout, "settings": settings, "history": history, "update": update,
+        "selftest": selftest,
+    }
 
 
 COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
@@ -792,6 +871,7 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "settings": settings_command,
     "history": history_command,
     "update": update_command,
+    "selftest": selftest_command,
 }
 
 
