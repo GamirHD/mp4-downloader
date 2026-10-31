@@ -290,10 +290,23 @@ class OptionTests(unittest.TestCase):
             {"format_id": "md-720p", "ext": "mp4", "height": 720, "vcodec": "h264", "acodec": "aac", "url": "m", "tbr": 1500},
         ]
         ydl = vd_cli.yt_dlp.YoutubeDL({"quiet": True})
-        for key, expected in (("best", "hd-1080p"), ("1080p", "hd-1080p"), ("720p", "md-720p")):
+        for key, expected in (("best", "hd-1080p"), ("original", "original"), ("1080p", "hd-1080p"), ("720p", "md-720p")):
             selector = ydl.build_format_selector(vd_cli.QUALITY_OPTIONS[key][1])
             picked = list(selector({"formats": sorted(formats, key=lambda f: f["tbr"]), "has_merged_format": True, "incomplete_formats": False}))
             self.assertEqual([f["format_id"] for f in picked], [expected], key)
+
+    def test_original_quality_falls_back_to_best_without_original_file(self) -> None:
+        if vd_cli.yt_dlp is None:
+            self.skipTest("yt-dlp nicht installiert")
+        formats = [
+            {"format_id": "137", "ext": "mp4", "height": 1080, "vcodec": "avc1", "acodec": "none", "url": "v", "tbr": 4000},
+            {"format_id": "313", "ext": "webm", "height": 2160, "vcodec": "vp9", "acodec": "none", "url": "v4k", "tbr": 16000},
+            {"format_id": "140", "ext": "m4a", "vcodec": "none", "acodec": "mp4a", "url": "a", "tbr": 128},
+        ]
+        ydl = vd_cli.yt_dlp.YoutubeDL({"quiet": True})
+        selector = ydl.build_format_selector(vd_cli.QUALITY_OPTIONS["original"][1])
+        picked = list(selector({"formats": sorted(formats, key=lambda f: f["tbr"]), "has_merged_format": True, "incomplete_formats": False}))
+        self.assertEqual(picked[0]["format_id"], "313+140")
 
     def test_cookie_file_and_referer_options(self) -> None:
         options = vd_cli.build_ydl_options("best", self.folder, cookie_file="cookies.txt", referer="https://example.com/kurs/")

@@ -39,12 +39,15 @@ vd settings --language de
 | --- | --- |
 | `vd "LINK"` | Video als MP4 laden (Standard: bis 1080p) |
 | `vd -a "LINK"` | Nur den Ton als MP3 |
-| `vd -q 720p "LINK"` | Andere Qualität: `best`, `1080p`, `720p`, `480p`, `mp3` |
+| `vd -q 720p "LINK"` | Andere Qualität: `best`, `original`, `1080p`, `720p`, `480p`, `mp3` |
 | `vd "LINK1" "LINK2"` | Mehrere Videos nacheinander |
 | `vd --playlist "LINK"` | Ganze Playlist |
 | `vd -f "D:\Videos" "LINK"` | In einen anderen Ordner |
 | `vd settings -f "D:\Videos" -q 720p` | Standard-Ordner und -Qualität ändern |
 | `vd history` / `vd update` / `vd --help` | Verlauf / Aktualisieren / Hilfe |
+
+`original` lädt die unbearbeitete Originaldatei, wenn eine Seite sie anbietet (z. B. Kursplattformen mit
+Wistia) – die schärfste Version, aber oft mehrere GB groß. Sonst wie `best`.
 
 ## Seiten mit Login
 

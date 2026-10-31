@@ -47,7 +47,7 @@ from site_auth import (
 )
 
 APP_NAME = "mp4-downloader"
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 REPO_ZIP_URL = "https://github.com/GamirHD/mp4-downloader/archive/refs/heads/main.zip"
 LATEST_RELEASE_API = "https://api.github.com/repos/GamirHD/mp4-downloader/releases/latest"
 SETUP_URL = "https://github.com/GamirHD/mp4-downloader/releases/latest/download/mp4-downloader-setup.exe"
@@ -59,6 +59,12 @@ QUALITY_OPTIONS = {
     "best": (
         "Best quality",
         f"bv*[ext=mp4]{_NOT_ORIGINAL}+ba[ext=m4a]/b[ext=mp4]{_NOT_ORIGINAL}/bv*+ba/b",
+        "mp4",
+    ),
+    # Unprocessed upload file if the site offers one (e.g. Wistia), otherwise the best quality.
+    "original": (
+        "Original file",
+        "b[format_id=original]/bv*+ba/b",
         "mp4",
     ),
     "1080p": (
