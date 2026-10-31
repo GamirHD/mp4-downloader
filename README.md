@@ -1,7 +1,7 @@
 # mp4-downloader (`vd`)
 
 Videos per Link als **MP4** oder **MP3** herunterladen – von YouTube und vielen anderen Seiten,
-auch von Seiten mit eigenem Video-Player oder Login (z. B. Kursplattformen).
+auch von Seiten mit eigenem Video-Player oder Login.
 
 ```powershell
 vd "https://www.youtube.com/watch?v=..."
