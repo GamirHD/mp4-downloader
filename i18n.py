@@ -113,6 +113,35 @@ MESSAGES: dict[str, dict[str, str]] = {
     "logout_none": {"en": "There was no login saved for {site}.", "de": "Für {site} war kein Login gespeichert."},
     "logout_all": {"en": "All logins deleted.", "de": "Alle Logins gelöscht."},
     "logout_nothing": {"en": "No login was saved.", "de": "Es war kein Login gespeichert."},
+    "import_done": {
+        "en": "Login for {site} taken over from your browser ({count} cookies). Clipboard cleared.",
+        "de": "Login für {site} aus dem Browser übernommen ({count} Cookies). Zwischenablage geleert.",
+    },
+    "import_none": {
+        "en": "No login found in the clipboard.\nIn your browser: open the website (logged in), click the extension "
+        "\"Get cookies.txt LOCALLY\" -> Copy. Then run this again.",
+        "de": "Kein Login in der Zwischenablage gefunden.\nIm Browser: Webseite öffnen (eingeloggt), Erweiterung "
+        "\"Get cookies.txt LOCALLY\" anklicken -> Copy. Danach erneut ausführen.",
+    },
+    "import_clipboard_error": {
+        "en": "The clipboard could not be read.",
+        "de": "Die Zwischenablage konnte nicht gelesen werden.",
+    },
+    "help.login_import": {
+        "en": "Take over the login of your normal browser from the clipboard (for sites that allow only one login)",
+        "de": "Login deines normalen Browsers aus der Zwischenablage übernehmen (für Seiten, die nur einen Login erlauben)",
+    },
+    "gui.import": {"en": "Take over from browser...", "de": "Aus Browser übernehmen..."},
+    "gui.import_help": {
+        "en": "For websites that allow only one login at a time (otherwise you are logged out in your browser):\n\n"
+        "1. Open the website in your browser and make sure you are logged in.\n"
+        "2. Click the browser extension \"Get cookies.txt LOCALLY\" -> Copy.\n"
+        "3. Click OK.",
+        "de": "Für Webseiten, die nur einen Login gleichzeitig erlauben (sonst wirst du im Browser ausgeloggt):\n\n"
+        "1. Webseite im Browser öffnen, eingeloggt sein.\n"
+        "2. Browser-Erweiterung \"Get cookies.txt LOCALLY\" anklicken -> Copy.\n"
+        "3. Auf OK klicken.",
+    },
     "no_browser": {
         "en": "Could not start a browser. Please install Brave, Chrome or Microsoft Edge. ({errors})",
         "de": "Es konnte kein Browser gestartet werden. Installiere Brave, Chrome oder Microsoft Edge. ({errors})",
@@ -200,6 +229,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": """\
 Commands:
   vd login [LINK]        Log in (without LINK: show saved logins)
+  vd login --import      Take over the login of your browser (clipboard)
   vd logout [SITE]       Delete a login (without SITE: all)
   vd settings            Show/change default folder, quality and language
   vd history             Show recent downloads
@@ -213,6 +243,7 @@ Examples:
         "de": """\
 Befehle:
   vd login [LINK]        Einloggen (ohne LINK: gespeicherte Logins anzeigen)
+  vd login --import      Login deines Browsers übernehmen (Zwischenablage)
   vd logout [SEITE]      Login löschen (ohne SEITE: alle)
   vd settings            Standard-Ordner, -Qualität und Sprache anzeigen/ändern
   vd history             Letzte Downloads anzeigen

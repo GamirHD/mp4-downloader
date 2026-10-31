@@ -12,6 +12,7 @@ from unittest import mock
 import browser_login
 import i18n
 import browsers
+import cookie_import
 import page_extractor
 import site_auth
 import vd_cli
@@ -650,6 +651,53 @@ class BrowserChoiceTests(unittest.TestCase):
         with mock.patch.object(browser_login, "browser_choices", return_value=browsers.browser_choices("")):
             browser_login._launch(playwright, profile, headless=True)
         self.assertTrue((profile / "Default").exists())
+
+
+class ImportLoginTests(ConfigTestCase):
+    EXPORT = (
+        "# Netscape HTTP Cookie File\n# https://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file! Do not edit.\n\n"
+        "example.com\tFALSE\t/\tTRUE\t0\tpmpro_visit\t1\n"
+        "example.com\tFALSE\t/\tTRUE\t9999999999\twordpress_logged_in_abc\tuser%7C123%7Ctoken\n"
+        "#HttpOnly_.example.com\tTRUE\t/\tTRUE\t9999999999\tsession\txyz\n"
+        "example.com\tFALSE\t/\tFALSE\t1000\texpired\told\n"
+    )
+
+    def test_browser_export_replaces_old_login_of_that_site_only(self) -> None:
+        profile = vd_cli.login_profile_dir()
+        browser_login._save_cookies(profile, [
+            {"name": "wordpress_logged_in_old", "value": "other-session", "domain": "example.com", "path": "/"},
+            {"name": "keep", "value": "1", "domain": ".vimeo.com", "path": "/"},
+        ])
+
+        sites = cookie_import.import_cookies(profile, self.EXPORT)
+
+        self.assertEqual(sites, {"example.com": 3})
+        names = [c["name"] for c in browser_login.saved_cookies_for("https://example.com/kurse/1", profile)]
+        self.assertEqual(sorted(names), ["pmpro_visit", "session", "wordpress_logged_in_abc"])
+        self.assertEqual([c["name"] for c in browser_login.saved_cookies_for("https://vimeo.com/1", profile)], ["keep"])
+        session = next(c for c in browser_login._load_cookies(profile) if c["name"] == "session")
+        self.assertTrue(session["httpOnly"])
+
+    def test_cookie_header_needs_a_link(self) -> None:
+        self.assertEqual(cookie_import.parse_cookies("a=1; b=2"), [])
+        cookies = cookie_import.parse_cookies("Cookie: a=1; b=2==", "https://www.example.com/x")
+        self.assertEqual([(c["name"], c["value"], c["domain"]) for c in cookies], [("a", "1", ".example.com"), ("b", "2==", ".example.com")])
+
+    def test_cli_import_reads_and_clears_clipboard(self) -> None:
+        with mock.patch.object(cookie_import, "read_clipboard_text", return_value=self.EXPORT), mock.patch.object(
+            cookie_import, "clear_clipboard", return_value=True
+        ) as cleared, redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(vd_cli.main(["login", "--import"]), 0)
+        cleared.assert_called_once()
+        self.assertIn("Login für example.com aus dem Browser übernommen (3 Cookies)", output.getvalue())
+
+    def test_cli_import_explains_steps_when_clipboard_has_no_login(self) -> None:
+        with mock.patch.object(cookie_import, "read_clipboard_text", return_value="hallo"), mock.patch.object(
+            cookie_import, "clear_clipboard"
+        ) as cleared, redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(vd_cli.main(["login", "--import"]), 1)
+        cleared.assert_not_called()
+        self.assertIn("Get cookies.txt LOCALLY", errors.getvalue())
 
 
 class HttpLoginTests(ConfigTestCase):

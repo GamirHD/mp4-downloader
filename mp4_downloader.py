@@ -302,8 +302,35 @@ class DownloaderApp(tk.Tk):
                 delete_credentials(login_profile_dir(), site)
             refresh()
 
-        ttk.Button(frame, text=t("gui.logout"), command=logout).grid(row=1, column=0, sticky="w", pady=(PAD, 0))
-        ttk.Button(frame, text=t("gui.close"), command=dialog.destroy).grid(row=1, column=1, sticky="e", pady=(PAD, 0))
+        def import_from_browser() -> None:
+            from cookie_import import CookieImportError, import_cookies
+
+            if not messagebox.askokcancel(t("gui.import"), t("gui.import_help"), parent=dialog):
+                return
+            try:
+                text = self.clipboard_get()
+            except tk.TclError:
+                text = ""
+            try:
+                sites = import_cookies(login_profile_dir(), text)
+            except CookieImportError:
+                messagebox.showwarning(t("gui.import"), t("import_none"), parent=dialog)
+                return
+            self.clipboard_clear()
+            self.clipboard_append("")
+            refresh()
+            messagebox.showinfo(
+                t("gui.import"),
+                "\n".join(t("import_done", site=site, count=count) for site, count in sites.items()),
+                parent=dialog,
+            )
+
+        actions = ttk.Frame(frame)
+        actions.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(PAD, 0))
+        actions.columnconfigure(2, weight=1)
+        ttk.Button(actions, text=t("gui.import"), command=import_from_browser).grid(row=0, column=0, sticky="w")
+        ttk.Button(actions, text=t("gui.logout"), command=logout).grid(row=0, column=1, sticky="w", padx=(6, 0))
+        ttk.Button(actions, text=t("gui.close"), command=dialog.destroy).grid(row=0, column=2, sticky="e")
         refresh()
         dialog.grab_set()
 
