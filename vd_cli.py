@@ -824,7 +824,7 @@ def main(argv: list[str] | None = None) -> int:
             prog="vd login",
             description="Einmal im Programm-Browser einloggen; danach nutzt vd den Login automatisch.",
         )
-        login_parser.add_argument("url", help="Seite, auf der du dich einloggen willst, z. B. https://ga.gg")
+        login_parser.add_argument("url", help="Seite, auf der du dich einloggen willst, z. B. https://example.com")
         return login_command(login_parser.parse_args(argv[1:]))
     if argv and argv[0] == "logout":
         if delete_saved_login(login_profile_dir()):

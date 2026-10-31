@@ -120,7 +120,7 @@ def sort_media_urls(urls: list[str]) -> list[str]:
 
 
 def clean_title(title: str | None) -> str | None:
-    """Drop a trailing site name like "Kursname | GA.GG"."""
+    """Drop a trailing site name like "Kursname | Seitenname"."""
     if not title:
         return None
     text = re.sub(r"\s+", " ", title).strip()

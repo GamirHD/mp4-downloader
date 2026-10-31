@@ -299,38 +299,38 @@ class VdCliOptionsTests(unittest.TestCase):
             "best",
             Path(self.temp_dir.name),
             cookie_file="cookies.txt",
-            referer="https://ga.gg/premium-kurse/kurs/",
+            referer="https://example.com/kurse/kurs/",
         )
 
         self.assertTrue(options["cookiefile"].endswith("cookies.txt"))
-        self.assertEqual(options["http_headers"]["Referer"], "https://ga.gg/premium-kurse/kurs/")
-        self.assertEqual(options["http_headers"]["Origin"], "https://ga.gg")
+        self.assertEqual(options["http_headers"]["Referer"], "https://example.com/kurse/kurs/")
+        self.assertEqual(options["http_headers"]["Origin"], "https://example.com")
 
     def test_only_unsupported_pages_trigger_embedded_search(self) -> None:
-        self.assertTrue(vd_cli.should_try_embedded_media("ERROR: Unsupported URL: https://ga.gg/x"))
+        self.assertTrue(vd_cli.should_try_embedded_media("ERROR: Unsupported URL: https://example.com/x"))
         self.assertFalse(vd_cli.should_try_embedded_media("ERROR: This video is DRM protected"))
         self.assertFalse(vd_cli.should_try_embedded_media("ERROR: HTTP Error 404"))
 
     def test_embedded_media_options_use_page_title_and_referer(self) -> None:
         base = vd_cli.build_ydl_options("best", Path(self.temp_dir.name))
         media = vd_cli.EmbeddedMedia(
-            page_url="https://ga.gg/premium-kurse/a/b/",
-            title="Xioh Midlane Masterclass 100%",
+            page_url="https://example.com/kurse/a/b/",
+            title="Mein Kurs Video 100%",
             media_urls=["https://cdn.example/master.m3u8"],
         )
 
         options = vd_cli.embedded_media_options(base, media)
 
-        self.assertEqual(options["http_headers"]["Referer"], "https://ga.gg/premium-kurse/a/b/")
+        self.assertEqual(options["http_headers"]["Referer"], "https://example.com/kurse/a/b/")
         self.assertEqual(
-            Path(options["outtmpl"]).name, "Xioh Midlane Masterclass 100%%.%(ext)s"
+            Path(options["outtmpl"]).name, "Mein Kurs Video 100%%.%(ext)s"
         )
         self.assertNotIn("http_headers", base)
 
     def test_embedded_media_options_accept_outtmpl_rewritten_by_yt_dlp(self) -> None:
         base = vd_cli.build_ydl_options("best", Path(self.temp_dir.name))
         base["outtmpl"] = {"default": base["outtmpl"]}
-        media = vd_cli.EmbeddedMedia(page_url="https://ga.gg/a/", title="Kurs", media_urls=["https://c/m.m3u8"])
+        media = vd_cli.EmbeddedMedia(page_url="https://example.com/a/", title="Kurs", media_urls=["https://c/m.m3u8"])
 
         options = vd_cli.embedded_media_options(base, media)
 
@@ -338,11 +338,11 @@ class VdCliOptionsTests(unittest.TestCase):
 
 
 class PageExtractorTests(unittest.TestCase):
-    PAGE = "https://ga.gg/premium-kurse/kurs/video/"
+    PAGE = "https://example.com/kurse/kurs/video/"
 
     def test_finds_master_playlist_before_variants_and_skips_segments(self) -> None:
         html = """
-        <html><head><meta property="og:title" content="Xioh Midlane Masterclass"></head>
+        <html><head><meta property="og:title" content="Mein Kurs Video"></head>
         <script>var cfg = {"hls":"https:\\/\\/cdn.example.com\\/v\\/abc\\/720p.m3u8?token=1\\u00262",
         "master":"https://cdn.example.com/v/abc/master.m3u8?token=1&amp;x=2"};</script>
         <a href="https://cdn.example.com/v/abc/seg-20-v1-a1.ts">x</a>
@@ -352,7 +352,7 @@ class PageExtractorTests(unittest.TestCase):
 
         self.assertEqual(urls[0], "https://cdn.example.com/v/abc/master.m3u8?token=1&x=2")
         self.assertIn("https://cdn.example.com/v/abc/720p.m3u8?token=1&2", urls)
-        self.assertEqual(page_extractor.extract_page_title(html), "Xioh Midlane Masterclass")
+        self.assertEqual(page_extractor.extract_page_title(html), "Mein Kurs Video")
 
     def test_finds_known_player_iframes_and_relative_video_sources(self) -> None:
         html = """
@@ -364,11 +364,11 @@ class PageExtractorTests(unittest.TestCase):
 
         self.assertEqual(
             urls,
-            ["https://ga.gg/media/intro.mp4", "https://player.vimeo.com/video/123?h=abc"],
+            ["https://example.com/media/intro.mp4", "https://player.vimeo.com/video/123?h=abc"],
         )
 
     def test_title_drops_site_name_suffix(self) -> None:
-        self.assertEqual(page_extractor.clean_title("Xioh Midlane Masterclass | GA.GG"), "Xioh Midlane Masterclass")
+        self.assertEqual(page_extractor.clean_title("Mein Kurs Video | Example"), "Mein Kurs Video")
         self.assertEqual(page_extractor.clean_title("Nur ein Titel"), "Nur ein Titel")
 
     def test_segment_files_are_not_media_candidates(self) -> None:
@@ -382,10 +382,10 @@ class PageExtractorTests(unittest.TestCase):
             return Cookie(0, "session", "v", None, False, domain, True, True, "/", True,
                           True, None, False, None, None, {"HttpOnly": None})
 
-        jar = [cookie(".ga.gg"), cookie("www.ga.gg"), cookie(".google.com")]
+        jar = [cookie(".example.com"), cookie("www.example.com"), cookie(".google.com")]
         cookies = page_extractor._playwright_cookies(jar, self.PAGE)
 
-        self.assertEqual([item["domain"] for item in cookies], [".ga.gg", "www.ga.gg"])
+        self.assertEqual([item["domain"] for item in cookies], [".example.com", "www.example.com"])
         self.assertTrue(cookies[0]["httpOnly"])
 
 
@@ -413,7 +413,7 @@ class DownloadFallbackTests(unittest.TestCase):
                 return {"title": "master", "id": "master"}
 
         media = vd_cli.EmbeddedMedia(
-            page_url="https://ga.gg/kurs/video/",
+            page_url="https://example.com/kurs/video/",
             title="Kurs Video",
             media_urls=["https://cdn.example/master.m3u8"],
         )
@@ -421,11 +421,11 @@ class DownloadFallbackTests(unittest.TestCase):
         with mock.patch.object(vd_cli.yt_dlp, "YoutubeDL", FakeYDL), mock.patch.object(
             vd_cli, "find_embedded_media", return_value=media
         ):
-            info = vd_cli.download_url("https://ga.gg/kurs/video/", options, log=lambda _text: None)
+            info = vd_cli.download_url("https://example.com/kurs/video/", options, log=lambda _text: None)
 
         self.assertEqual(info["title"], "Kurs Video")
         self.assertEqual(calls[1][0], "https://cdn.example/master.m3u8")
-        self.assertEqual(calls[1][1]["http_headers"]["Referer"], "https://ga.gg/kurs/video/")
+        self.assertEqual(calls[1][1]["http_headers"]["Referer"], "https://example.com/kurs/video/")
 
     def test_no_embedded_video_gives_clear_error(self) -> None:
         if vd_cli.yt_dlp is None:
@@ -449,36 +449,36 @@ class DownloadFallbackTests(unittest.TestCase):
             vd_cli, "find_embedded_media", return_value=None
         ):
             with self.assertRaises(RuntimeError) as ctx:
-                vd_cli.download_url("https://ga.gg/kurs/video/", options, log=lambda _text: None)
+                vd_cli.download_url("https://example.com/kurs/video/", options, log=lambda _text: None)
 
         self.assertIn("Kein eingebettetes Video", vd_cli.friendly_error(str(ctx.exception)))
 
 
 class CookieInputTests(unittest.TestCase):
-    URL = "https://ga.gg/premium-kurse/kurs/video/"
+    URL = "https://example.com/kurse/kurs/video/"
 
     def test_netscape_text_is_kept_including_httponly_lines(self) -> None:
         text = (
             "# Netscape HTTP Cookie File\n# comment\n\n"
-            "ga.gg\tFALSE\t/\tTRUE\t0\tPHPSESSID\tabc\n"
-            "#HttpOnly_ga.gg\tFALSE\t/\tTRUE\t1794649663\twordpress_logged_in_x\tuser%7C1\n"
+            "example.com\tFALSE\t/\tTRUE\t0\tPHPSESSID\tabc\n"
+            "#HttpOnly_example.com\tFALSE\t/\tTRUE\t1794649663\twordpress_logged_in_x\tuser%7C1\n"
         )
         content, count = cookie_input.cookies_text_to_netscape(text, self.URL)
 
         self.assertEqual(count, 2)
         self.assertTrue(content.startswith("# Netscape HTTP Cookie File"))
-        self.assertIn("#HttpOnly_ga.gg", content)
+        self.assertIn("#HttpOnly_example.com", content)
 
     def test_cookie_header_is_converted_for_the_link_domain(self) -> None:
         content, count = cookie_input.cookies_text_to_netscape(
-            "cookie: PHPSESSID=abc; wordpress_logged_in_x=user%7C1==; empty=", "https://www.ga.gg/x/"
+            "cookie: PHPSESSID=abc; wordpress_logged_in_x=user%7C1==; empty=", "https://www.example.com/x/"
         )
 
         self.assertEqual(count, 3)
-        self.assertIn(".ga.gg\tTRUE\t/\tFALSE\t0\twordpress_logged_in_x\tuser%7C1==", content)
+        self.assertIn(".example.com\tTRUE\t/\tFALSE\t0\twordpress_logged_in_x\tuser%7C1==", content)
 
     def test_random_clipboard_text_is_rejected(self) -> None:
-        for text in ("", "   ", "https://ga.gg/premium-kurse/", "hallo welt"):
+        for text in ("", "   ", "https://example.com/kurse/", "hallo welt"):
             with self.assertRaises(cookie_input.CookieInputError):
                 cookie_input.cookies_text_to_netscape(text, self.URL)
 
@@ -491,7 +491,7 @@ class CookieInputTests(unittest.TestCase):
         self.assertFalse(remembered.exists())
 
     def test_cli_uses_clipboard_cookies_temporarily(self) -> None:
-        clipboard = "ga.gg\tFALSE\t/\tTRUE\t0\tPHPSESSID\tabc\n"
+        clipboard = "example.com\tFALSE\t/\tTRUE\t0\tPHPSESSID\tabc\n"
         seen: dict[str, str] = {}
 
         def fake_download(url, quality_key, folder, **kwargs):
@@ -516,10 +516,10 @@ class CookieInputTests(unittest.TestCase):
 class BrowserLoginTests(unittest.TestCase):
     def test_saved_cookies_are_filtered_by_site_path_and_expiry(self) -> None:
         cookies = [
-            {"name": "login", "value": "a", "domain": "ga.gg", "path": "/", "expires": -1},
-            {"name": "sub", "value": "b", "domain": ".ga.gg", "path": "/", "expires": 9999999999},
-            {"name": "admin", "value": "c", "domain": "ga.gg", "path": "/wp-admin", "expires": -1},
-            {"name": "old", "value": "d", "domain": "ga.gg", "path": "/", "expires": 1000},
+            {"name": "login", "value": "a", "domain": "example.com", "path": "/", "expires": -1},
+            {"name": "sub", "value": "b", "domain": ".example.com", "path": "/", "expires": 9999999999},
+            {"name": "admin", "value": "c", "domain": "example.com", "path": "/wp-admin", "expires": -1},
+            {"name": "old", "value": "d", "domain": "example.com", "path": "/", "expires": 1000},
             {"name": "other", "value": "e", "domain": ".google.com", "path": "/", "expires": -1},
         ]
         with tempfile.TemporaryDirectory() as temp:
@@ -527,9 +527,9 @@ class BrowserLoginTests(unittest.TestCase):
             browser_login._save_cookies(profile, cookies)
 
             self.assertTrue(browser_login.has_saved_login(profile))
-            names = [c["name"] for c in browser_login.saved_cookies_for("https://ga.gg/premium-kurse/x/", profile)]
+            names = [c["name"] for c in browser_login.saved_cookies_for("https://example.com/kurse/x/", profile)]
             self.assertEqual(names, ["login", "sub"])
-            names = [c["name"] for c in browser_login.saved_cookies_for("https://www.ga.gg/x/", profile)]
+            names = [c["name"] for c in browser_login.saved_cookies_for("https://www.example.com/x/", profile)]
             self.assertEqual(names, ["sub"])
 
             self.assertTrue(browser_login.delete_saved_login(profile))
@@ -538,15 +538,15 @@ class BrowserLoginTests(unittest.TestCase):
     def test_cookies_to_netscape_is_readable_by_yt_dlp_format(self) -> None:
         text = browser_login.cookies_to_netscape(
             [
-                {"name": "a", "value": "1", "domain": ".ga.gg", "path": "/", "expires": 1900000000.5, "secure": True, "httpOnly": True},
-                {"name": "b", "value": "2", "domain": "ga.gg", "path": "/", "expires": -1, "secure": False},
+                {"name": "a", "value": "1", "domain": ".example.com", "path": "/", "expires": 1900000000.5, "secure": True, "httpOnly": True},
+                {"name": "b", "value": "2", "domain": "example.com", "path": "/", "expires": -1, "secure": False},
             ]
         )
-        content, count = cookie_input.cookies_text_to_netscape(text, "https://ga.gg/")
+        content, count = cookie_input.cookies_text_to_netscape(text, "https://example.com/")
 
         self.assertEqual(count, 2)
-        self.assertIn("#HttpOnly_.ga.gg\tTRUE\t/\tTRUE\t1900000000\ta\t1", content)
-        self.assertIn("ga.gg\tFALSE\t/\tFALSE\t0\tb\t2", content)
+        self.assertIn("#HttpOnly_.example.com\tTRUE\t/\tTRUE\t1900000000\ta\t1", content)
+        self.assertIn("example.com\tFALSE\t/\tFALSE\t0\tb\t2", content)
 
     def test_cli_uses_saved_login_automatically(self) -> None:
         seen: dict[str, str] = {}
@@ -559,10 +559,10 @@ class BrowserLoginTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
             browser_login._save_cookies(
                 _ensure_dir(vd_cli.login_profile_dir()),
-                [{"name": "wordpress_logged_in_x", "value": "v", "domain": "ga.gg", "path": "/", "expires": -1}],
+                [{"name": "wordpress_logged_in_x", "value": "v", "domain": "example.com", "path": "/", "expires": -1}],
             )
             with mock.patch.object(vd_cli, "download", side_effect=fake_download), redirect_stdout(io.StringIO()):
-                code = vd_cli.main(["https://ga.gg/premium-kurse/x/", "-q", "best"])
+                code = vd_cli.main(["https://example.com/kurse/x/", "-q", "best"])
 
         self.assertEqual(code, 0)
         self.assertIn("wordpress_logged_in_x", seen["content"])
