@@ -1,124 +1,52 @@
+# mp4-downloader installieren:
+#   irm https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.ps1 | iex
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+$package = "https://github.com/GamirHD/mp4-downloader/archive/refs/heads/main.zip"
 
-$repoUrl = "https://github.com/GamirHD/mp4-downloader"
-$archiveUrl = "$repoUrl/archive/refs/heads/main.zip"
-$installRoot = Join-Path $env:LOCALAPPDATA "mp4-downloader"
-$sourceDir = Join-Path $installRoot "source"
-$zipPath = Join-Path $env:TEMP "mp4-downloader-main.zip"
-
-function Test-Command {
-    param([Parameter(Mandatory = $true)][string]$Name)
+function Test-Command([string]$Name) {
     $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
-function Ensure-WingetPackage {
-    param(
-        [Parameter(Mandatory = $true)][string]$PackageId,
-        [Parameter(Mandatory = $true)][string]$CommandName,
-        [Parameter(Mandatory = $true)][string]$DisplayName
-    )
+function Update-SessionPath {
+    $machine = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $user = [Environment]::GetEnvironmentVariable("Path", "User")
+    $env:Path = "$machine;$user"
+}
 
-    if (Test-Command $CommandName) {
-        Write-Host "$DisplayName ist bereits installiert."
-        return
-    }
-
+function Install-WithWinget([string]$Id, [string]$Command, [string]$Name) {
+    if (Test-Command $Command) { return }
     if (-not (Test-Command "winget")) {
-        throw "$DisplayName fehlt und winget wurde nicht gefunden. Bitte $DisplayName manuell installieren."
+        throw "$Name fehlt und winget ist nicht verfügbar. Bitte $Name installieren und das Skript erneut starten."
     }
-
-    Write-Host "Installiere $DisplayName mit winget..."
-    winget install --id $PackageId --exact --source winget --accept-package-agreements --accept-source-agreements
+    Write-Host "Installiere $Name..."
+    winget install --id $Id --exact --source winget --silent --accept-package-agreements --accept-source-agreements | Out-Null
+    Update-SessionPath
 }
 
-function Add-UserPath {
-    param([Parameter(Mandatory = $true)][string]$PathToAdd)
-
-    if (-not $PathToAdd -or -not (Test-Path $PathToAdd)) {
-        return
+function Add-ToUserPath([string]$Dir) {
+    if (-not $Dir -or -not (Test-Path $Dir)) { return }
+    $user = [Environment]::GetEnvironmentVariable("Path", "User")
+    $parts = @($user -split ";" | Where-Object { $_ })
+    if ($parts -notcontains $Dir) {
+        [Environment]::SetEnvironmentVariable("Path", (($parts + $Dir) -join ";"), "User")
     }
-
-    $currentUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    $pathParts = @()
-    if ($currentUserPath) {
-        $pathParts = $currentUserPath -split ";" | Where-Object { $_ }
-    }
-
-    if ($pathParts -notcontains $PathToAdd) {
-        $newUserPath = (@($pathParts) + $PathToAdd) -join ";"
-        [Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
-        Write-Host "PATH erweitert: $PathToAdd"
-    }
-
-    $processParts = @($env:Path -split ";" | Where-Object { $_ })
-    if ($processParts -notcontains $PathToAdd) {
-        $env:Path = (@($processParts) + $PathToAdd) -join ";"
-    }
+    if (@($env:Path -split ";") -notcontains $Dir) { $env:Path = "$env:Path;$Dir" }
 }
 
-function Add-VdScriptPaths {
-    $scriptDirs = @(
-        (python -c "import sysconfig; print(sysconfig.get_path('scripts'))"),
-        (python -c "import site, os; print(os.path.join(site.USER_BASE, 'Scripts'))")
-    )
+Write-Host "Installiere mp4-downloader (vd)..."
+Install-WithWinget "Python.Python.3.12" "python" "Python"
+Install-WithWinget "Gyan.FFmpeg" "ffmpeg" "ffmpeg"
 
-    foreach ($scriptDir in $scriptDirs) {
-        Add-UserPath -PathToAdd $scriptDir
-    }
+python -m pip install --upgrade --quiet --disable-pip-version-check $package
+if ($LASTEXITCODE -ne 0) { throw "Installation fehlgeschlagen." }
 
-    $searchRoots = @(
-        (Join-Path $env:APPDATA "Python"),
-        (Join-Path $env:LOCALAPPDATA "Programs\Python"),
-        (Join-Path $env:LOCALAPPDATA "Packages")
-    )
-
-    foreach ($root in $searchRoots) {
-        if (-not (Test-Path $root)) {
-            continue
-        }
-
-        Get-ChildItem -Path $root -Filter "vd.exe" -Recurse -ErrorAction SilentlyContinue |
-            ForEach-Object {
-                Add-UserPath -PathToAdd $_.DirectoryName
-            }
-    }
-}
-
-Write-Host "Installiere mp4-downloader..."
-
-Ensure-WingetPackage -PackageId "Python.Python.3.12" -CommandName "python" -DisplayName "Python"
-Ensure-WingetPackage -PackageId "Gyan.FFmpeg" -CommandName "ffmpeg" -DisplayName "ffmpeg"
-
-if (Test-Path $installRoot) {
-    Remove-Item $installRoot -Recurse -Force
-}
-New-Item -ItemType Directory -Path $installRoot | Out-Null
-
-Write-Host "Lade Projekt von GitHub..."
-Invoke-WebRequest -Uri $archiveUrl -OutFile $zipPath
-Expand-Archive -Path $zipPath -DestinationPath $installRoot -Force
-Remove-Item $zipPath -Force
-
-$expandedDir = Join-Path $installRoot "mp4-downloader-main"
-Move-Item $expandedDir $sourceDir
-
-Write-Host "Installiere vd-Befehl..."
-python -m pip install --upgrade pip
-python -m pip install --upgrade $sourceDir
-
-Add-VdScriptPaths
-
-if (-not (Test-Command "vd")) {
-    Write-Host ""
-    Write-Host "Hinweis: vd wurde installiert, ist aber in diesem Terminal noch nicht sichtbar."
-    Write-Host "Schliesse PowerShell/CMD komplett und oeffne ein neues Terminal."
-}
+# Ordner mit vd.exe in den PATH aufnehmen (normale und Benutzer-Installation von pip)
+Add-ToUserPath (python -c "import sysconfig; print(sysconfig.get_path('scripts'))")
+Add-ToUserPath (python -c "import os, sysconfig; print(sysconfig.get_path('scripts', os.name + '_user'))")
 
 Write-Host ""
-Write-Host "Fertig. Schliesse dieses Terminal und oeffne ein neues."
-Write-Host "Danach kannst du verwenden:"
+Write-Host "Fertig! Öffne ein neues Terminal und lade ein Video mit:"
 Write-Host '  vd "https://www.youtube.com/watch?v=..."'
 Write-Host ""
-Write-Host "Settings:"
-Write-Host "  vd settings"
-Write-Host '  vd settings --folder "C:\Users\Kadir\Downloads\Videos"'
+Write-Host "Hilfe: vd --help    Aktualisieren: vd update"

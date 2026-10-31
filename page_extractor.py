@@ -225,10 +225,7 @@ def sniff_media_with_browser(
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        log(
-            "Tipp: Fuer Seiten, die das Video per JavaScript laden, "
-            "`python -m pip install playwright` ausfuehren."
-        )
+        log("Playwright fehlt (für Seiten mit eigenem Video-Player). Behebung: vd update")
         return None
 
     found: list[str] = []
@@ -260,7 +257,7 @@ def sniff_media_with_browser(
 
     title = None
     final_url = page_url
-    log("Oeffne die Seite im Hintergrund-Browser und suche den Videostream...")
+    verbose = debug_dir is not None
     with sync_playwright() as playwright:
         browser = _launch_browser(playwright, log)
         try:
@@ -273,7 +270,8 @@ def sniff_media_with_browser(
             cookies = _playwright_cookies(cookiejar, page_url)
             if cookies:
                 context.add_cookies(cookies)
-            log(f"Login-Cookies fuer den Hintergrund-Browser: {len(cookies)}")
+            if verbose:
+                log(f"Login-Cookies für den Hintergrund-Browser: {len(cookies)}")
             context.on("request", on_request)
             context.on("response", on_response)
             page = context.new_page()
@@ -306,11 +304,11 @@ def sniff_media_with_browser(
             browser.close()
 
     if not found:
-        if final_url.split("#")[0].rstrip("/") != page_url.split("#")[0].rstrip("/"):
+        if verbose and final_url.split("#")[0].rstrip("/") != page_url.split("#")[0].rstrip("/"):
             log(f"Der Hintergrund-Browser wurde weitergeleitet auf: {_strip_query(final_url)}")
             if LOGIN_HINT_PATTERN.search(final_url):
                 log("Das sieht nach einer Login-Seite aus: die Cookies sind abgelaufen oder fehlen.")
-        if segments_seen:
+        if verbose and segments_seen:
             log(f"Es wurden {segments_seen} Video-Teile geladen, aber keine Playlist erkannt.")
         return None
     return EmbeddedMedia(page_url=page_url, title=clean_title(title), media_urls=sort_media_urls(found))
@@ -405,7 +403,8 @@ def find_embedded_media(
         charset = response.headers.get_content_charset() if hasattr(response.headers, "get_content_charset") else None
         page_html = response.read().decode(charset or "utf-8", errors="replace")
     except Exception as exc:  # noqa: BLE001 - try the browser fallback anyway
-        log(f"Seite konnte nicht gelesen werden: {exc}")
+        if debug_dir is not None:
+            log(f"Seite konnte nicht gelesen werden: {exc}")
 
     if page_html and debug_dir is not None:
         debug_dir.mkdir(parents=True, exist_ok=True)
@@ -414,7 +413,6 @@ def find_embedded_media(
     if page_html:
         media_urls = find_media_in_html(page_html, page_url)
         if media_urls:
-            log(f"Eingebettetes Video im Seiten-HTML gefunden ({len(media_urls)} Kandidat(en)).")
             return EmbeddedMedia(page_url=page_url, title=extract_page_title(page_html), media_urls=media_urls)
 
     if not use_browser:
@@ -424,7 +422,7 @@ def find_embedded_media(
             page_url, getattr(downloader, "cookiejar", None), debug_dir=debug_dir, log=log
         )
     except Exception as exc:  # noqa: BLE001 - report and fall through to "nothing found"
-        log(f"Hintergrund-Browser fehlgeschlagen: {exc}")
+        log(f"Die Video-Suche im Hintergrund-Browser ist fehlgeschlagen: {exc}")
         media = None
     if media and not media.title and page_html:
         media.title = extract_page_title(page_html)

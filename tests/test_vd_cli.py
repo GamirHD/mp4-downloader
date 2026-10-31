@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import io
 import os
 import tempfile
@@ -11,133 +10,127 @@ from pathlib import Path
 from unittest import mock
 
 import browser_login
-import cookie_input
 import page_extractor
 import vd_cli
 
 
-class VdCliSharedStateTests(unittest.TestCase):
+class ConfigTestCase(unittest.TestCase):
+    """Every test gets its own empty settings folder."""
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
-        self.env_patcher = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.temp_dir.name}, clear=False)
-        self.env_patcher.start()
-        self.addCleanup(self.env_patcher.stop)
+        patcher = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.temp_dir.name, "APPDATA": self.temp_dir.name})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.folder = Path(self.temp_dir.name) / "Downloads"
 
-    def test_settings_round_trip_preserves_archive_default(self) -> None:
-        self.assertFalse(vd_cli.load_settings()["use_download_archive"])
 
-        folder = Path(self.temp_dir.name) / "Downloads"
-        vd_cli.save_settings({"download_dir": str(folder), "use_download_archive": True})
+class SettingsAndHistoryTests(ConfigTestCase):
+    def test_settings_defaults_round_trip_and_ignore_old_keys(self) -> None:
+        self.assertEqual(vd_cli.load_settings()["quality"], "1080p")
 
-        self.assertEqual(
-            vd_cli.load_settings(),
-            {
-                "download_dir": str(folder),
-                "use_download_archive": True,
-                "cookies_from_browser": None,
-                "cookies_from_clipboard": False,
-            },
-        )
+        vd_cli.save_settings({"download_dir": str(self.folder), "quality": "720p", "use_download_archive": True})
 
-    def test_settings_ignore_non_string_download_dir(self) -> None:
-        vd_cli.save_settings({"download_dir": 123, "use_download_archive": True})
+        self.assertEqual(vd_cli.load_settings(), {"download_dir": str(self.folder), "quality": "720p"})
+
+    def test_settings_ignore_invalid_values(self) -> None:
+        vd_cli.config_path().parent.mkdir(parents=True, exist_ok=True)
+        vd_cli.config_path().write_text('{"download_dir": 123, "quality": "8k"}', encoding="utf-8")
 
         settings = vd_cli.load_settings()
 
         self.assertEqual(settings["download_dir"], str(vd_cli.default_download_dir()))
-        self.assertTrue(settings["use_download_archive"])
+        self.assertEqual(settings["quality"], "1080p")
 
-    def test_settings_parse_common_boolean_string_values(self) -> None:
-        vd_cli.save_settings({"download_dir": str(vd_cli.default_download_dir()), "use_download_archive": "false"})
+    def test_settings_command_changes_folder_and_quality(self) -> None:
+        with redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(vd_cli.main(["settings", "-f", str(self.folder), "-q", "mp3"]), 0)
 
-        self.assertFalse(vd_cli.load_settings()["use_download_archive"])
-
-        vd_cli.save_settings({"download_dir": str(vd_cli.default_download_dir()), "use_download_archive": "true"})
-
-        self.assertTrue(vd_cli.load_settings()["use_download_archive"])
+        self.assertEqual(vd_cli.load_settings()["quality"], "mp3")
+        self.assertTrue(self.folder.is_dir())
+        self.assertIn("Nur Audio", output.getvalue())
 
     def test_history_deduplicates_newest_url_and_caps_entries(self) -> None:
-        folder = Path(self.temp_dir.name) / "Downloads"
-        vd_cli.add_history_entry("https://example.test/1", title="Old", quality_key="720p", folder=folder)
-        vd_cli.add_history_entry("https://example.test/1", title="New", quality_key="mp3", folder=folder)
-
+        vd_cli.add_history_entry("https://example.test/1", title="Old", quality_key="720p", folder=self.folder)
+        vd_cli.add_history_entry("https://example.test/1", title="New", quality_key="mp3", folder=self.folder)
         for index in range(vd_cli.MAX_HISTORY_ENTRIES + 5):
-            vd_cli.add_history_entry(
-                f"https://example.test/{index + 2}",
-                title=str(index),
-                quality_key="best",
-                folder=folder,
-            )
+            vd_cli.add_history_entry(f"https://example.test/{index + 2}", title=str(index), quality_key="best", folder=self.folder)
 
         entries = vd_cli.load_history()
         self.assertEqual(len(entries), vd_cli.MAX_HISTORY_ENTRIES)
         self.assertEqual(len({entry["url"] for entry in entries}), vd_cli.MAX_HISTORY_ENTRIES)
 
     def test_history_ignores_entries_without_string_url(self) -> None:
-        vd_cli.save_history(
-            [
-                {"url": " https://example.test/1 ", "title": " One ", "quality": "720p", "folder": " /tmp "},
-                {"url": ""},
-                {"url": ["https://example.test/2"], "title": "Two"},
-                {"title": "Missing URL"},
-            ]
-        )
+        vd_cli.save_history([{"url": " https://example.test/1 ", "title": " One "}, {"url": ""}, {"title": "x"}])
 
         entries = vd_cli.load_history()
-        self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0]["url"], "https://example.test/1")
-        self.assertEqual(entries[0]["title"], "One")
-        self.assertEqual(entries[0]["folder"], "/tmp")
+        self.assertEqual([(e["url"], e["title"]) for e in entries], [("https://example.test/1", "One")])
 
-    def test_history_command_rejects_zero_limit_in_parser(self) -> None:
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--limit", type=vd_cli.positive_int)
+    def test_history_command_lists_and_clears(self) -> None:
+        vd_cli.add_history_entry("https://example.test/1", title="One", quality_key="best", folder=self.folder)
+        with redirect_stdout(io.StringIO()) as output:
+            vd_cli.main(["history"])
+        self.assertIn("One", output.getvalue())
 
-        with redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit):
-                parser.parse_args(["--limit", "0"])
-
-    def test_version_flag_prints_package_version(self) -> None:
-        output = io.StringIO()
-
-        with redirect_stdout(output):
-            with self.assertRaises(SystemExit) as context:
-                vd_cli.main(["--version"])
-
-        self.assertEqual(context.exception.code, 0)
-        self.assertIn(vd_cli.__version__, output.getvalue())
-
-    def test_history_command_prints_requested_limit(self) -> None:
-        folder = Path(self.temp_dir.name) / "Downloads"
-        vd_cli.add_history_entry("https://example.test/1", title="One", quality_key="best", folder=folder)
-        vd_cli.add_history_entry("https://example.test/2", title="Two", quality_key="best", folder=folder)
-
-        output = io.StringIO()
-        args = argparse.Namespace(clear=False, limit=1)
-        with redirect_stdout(output):
-            self.assertEqual(vd_cli.history_command(args), 0)
-
-        text = output.getvalue()
-        self.assertIn("1. Two", text)
-        self.assertNotIn("2. One", text)
+        with redirect_stdout(io.StringIO()):
+            vd_cli.main(["history", "--clear"])
+        self.assertEqual(vd_cli.load_history(), [])
 
     def test_format_history_timestamp_returns_local_readable_string(self) -> None:
         value = "2026-07-13T12:34:56+00:00"
         expected = datetime.fromisoformat(value).astimezone().strftime("%Y-%m-%d %H:%M")
         self.assertEqual(vd_cli.format_history_timestamp(value), expected)
 
-    def test_dpapi_error_points_to_cookie_file(self) -> None:
-        message = vd_cli.friendly_error("ERROR: Failed to decrypt with DPAPI. See https://github.com/yt-dlp/yt-dlp/issues/10927")
-        self.assertIn("cookies.txt", message)
-        self.assertNotIn("DRM", message)
 
-    def test_cookie_error_points_to_cli_cookie_controls(self) -> None:
-        message = vd_cli.friendly_error("Sign in to confirm you're not a bot. Use cookies.")
+class CommandLineTests(ConfigTestCase):
+    def test_version_flag_prints_package_version(self) -> None:
+        with redirect_stdout(io.StringIO()) as output, self.assertRaises(SystemExit) as context:
+            vd_cli.main(["--version"])
+        self.assertEqual(context.exception.code, 0)
+        self.assertIn(vd_cli.__version__, output.getvalue())
 
-        self.assertIn("--cookies-from-browser", message)
-        self.assertNotIn("GUI", message)
+    def test_without_links_shows_short_help_with_commands(self) -> None:
+        with redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(vd_cli.main([]), 2)
+        self.assertIn("vd login", output.getvalue())
+        self.assertNotIn("--debug", output.getvalue())
 
+    def test_text_without_links_is_explained(self) -> None:
+        with redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(vd_cli.main(["not-a-link"]), 2)
+        self.assertIn(vd_cli.no_urls_found_message(), errors.getvalue())
+
+    def test_download_uses_saved_quality_audio_flag_and_reports_file(self) -> None:
+        vd_cli.save_settings({"download_dir": str(self.folder), "quality": "720p"})
+        calls = []
+
+        def fake_run(url, quality_key, folder, **kwargs):
+            calls.append((quality_key, folder))
+            return {"title": "Clip", "requested_downloads": [{"filepath": str(folder / "Clip.mp4")}]}
+
+        with mock.patch.object(vd_cli, "run_download", side_effect=fake_run), redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(vd_cli.main(["https://example.test/a"]), 0)
+            self.assertEqual(vd_cli.main(["-a", "https://example.test/b"]), 0)
+
+        self.assertEqual(calls, [("720p", self.folder), ("mp3", self.folder)])
+        self.assertIn(f"Gespeichert: {self.folder / 'Clip.mp4'}", output.getvalue())
+        self.assertEqual(vd_cli.load_history()[0]["title"], "Clip")
+
+    def test_failed_download_shows_friendly_error(self) -> None:
+        error = RuntimeError("ERROR: [generic] abc: Unable to download webpage: HTTP Error 404: Not Found")
+        with mock.patch.object(vd_cli, "run_download", side_effect=error), redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(vd_cli.main(["https://example.test/a"]), 1)
+        self.assertIn("nicht gefunden (404)", errors.getvalue())
+        self.assertNotIn("ERROR", errors.getvalue())
+
+    def test_friendly_errors(self) -> None:
+        self.assertIn("DRM", vd_cli.friendly_error("ERROR: This video is DRM protected"))
+        self.assertIn("vd login", vd_cli.friendly_error("Sign in to confirm you're not a bot"))
+        self.assertIn("ffmpeg", vd_cli.friendly_error("ERROR: ffmpeg not found"))
+
+
+class LinkParsingTests(unittest.TestCase):
     def test_extract_urls_from_text_splits_common_clipboard_separators(self) -> None:
         urls = vd_cli.extract_urls_from_text(
             " https://example.test/1\nhttps://example.test/2, https://example.test/3\t"
@@ -238,73 +231,40 @@ class VdCliSharedStateTests(unittest.TestCase):
             ],
         )
 
-    def test_main_explains_when_arguments_contain_no_urls(self) -> None:
-        output = io.StringIO()
 
-        with redirect_stdout(output):
-            result = vd_cli.main(["not-a-link"])
-
-        self.assertEqual(result, 2)
-        self.assertIn(vd_cli.no_urls_found_message(), output.getvalue())
-
-
-class VdCliOptionsTests(unittest.TestCase):
+class OptionTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp_dir.cleanup)
-        self.env_patcher = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.temp_dir.name}, clear=False)
-        self.env_patcher.start()
-        self.addCleanup(self.env_patcher.stop)
+        self.folder = Path(tempfile.gettempdir())
 
     def test_mp3_options_use_audio_postprocessor(self) -> None:
-        options = vd_cli.build_ydl_options("mp3", Path(self.temp_dir.name))
-
+        options = vd_cli.build_ydl_options("mp3", self.folder)
         self.assertEqual(options["format"], "bestaudio/best")
         self.assertEqual(options["postprocessors"][0]["preferredcodec"], "mp3")
 
-    def test_archive_and_browser_options_are_shared_by_cli_and_gui(self) -> None:
-        options = vd_cli.build_ydl_options(
-            "720p",
-            Path(self.temp_dir.name),
-            allow_playlist=True,
-            cookies_from_browser="firefox",
-            use_download_archive=True,
-        )
+    def test_output_is_quiet_and_named_after_title(self) -> None:
+        options = vd_cli.build_ydl_options("1080p", self.folder)
+        self.assertTrue(options["noprogress"])
+        self.assertIsInstance(options["logger"], vd_cli._SilentLogger)
+        self.assertTrue(options["outtmpl"].endswith("%(title).200s.%(ext)s"))
 
-        self.assertFalse(options["noplaylist"])
-        self.assertEqual(options["cookiesfrombrowser"], ("firefox",))
-        self.assertEqual(options["download_archive"], str(vd_cli.download_archive_path()))
-
-    def test_no_archive_flag_can_override_saved_default_on(self) -> None:
-        folder = Path(self.temp_dir.name) / "Downloads"
-        vd_cli.save_settings({"download_dir": str(folder), "use_download_archive": True})
-
-        with mock.patch.object(vd_cli, "choose_quality", return_value="best"):
-            with mock.patch.object(vd_cli, "download", return_value={"title": "One"}) as download_mock:
-                self.assertEqual(vd_cli.main(["https://example.test/1", "--no-archive"]), 0)
-
-        self.assertFalse(download_mock.call_args.kwargs["use_download_archive"])
-
-
-    def test_saved_browser_login_is_kept_and_invalid_values_are_ignored(self) -> None:
-        folder = str(Path(self.temp_dir.name))
-        vd_cli.save_settings({"download_dir": folder, "cookies_from_browser": "firefox"})
-        self.assertEqual(vd_cli.load_settings()["cookies_from_browser"], "firefox")
-
-        vd_cli.save_settings({"download_dir": folder, "cookies_from_browser": "netscape"})
-        self.assertIsNone(vd_cli.load_settings()["cookies_from_browser"])
+    def test_quality_selectors_skip_huge_original_uploads(self) -> None:
+        if vd_cli.yt_dlp is None:
+            self.skipTest("yt-dlp nicht installiert")
+        formats = [
+            {"format_id": "original", "ext": "mp4", "height": 1080, "vcodec": "h264", "acodec": "aac", "url": "o", "tbr": 9000},
+            {"format_id": "hd-1080p", "ext": "mp4", "height": 1080, "vcodec": "h264", "acodec": "aac", "url": "h", "tbr": 3000},
+            {"format_id": "md-720p", "ext": "mp4", "height": 720, "vcodec": "h264", "acodec": "aac", "url": "m", "tbr": 1500},
+        ]
+        ydl = vd_cli.yt_dlp.YoutubeDL({"quiet": True})
+        for key, expected in (("best", "hd-1080p"), ("1080p", "hd-1080p"), ("720p", "md-720p")):
+            selector = ydl.build_format_selector(vd_cli.QUALITY_OPTIONS[key][1])
+            picked = list(selector({"formats": sorted(formats, key=lambda f: f["tbr"]), "has_merged_format": True, "incomplete_formats": False}))
+            self.assertEqual([f["format_id"] for f in picked], [expected], key)
 
     def test_cookie_file_and_referer_options(self) -> None:
-        options = vd_cli.build_ydl_options(
-            "best",
-            Path(self.temp_dir.name),
-            cookie_file="cookies.txt",
-            referer="https://example.com/kurse/kurs/",
-        )
-
+        options = vd_cli.build_ydl_options("best", self.folder, cookie_file="cookies.txt", referer="https://example.com/kurs/")
         self.assertTrue(options["cookiefile"].endswith("cookies.txt"))
-        self.assertEqual(options["http_headers"]["Referer"], "https://example.com/kurse/kurs/")
-        self.assertEqual(options["http_headers"]["Origin"], "https://example.com")
+        self.assertEqual(options["http_headers"], {"Referer": "https://example.com/kurs/", "Origin": "https://example.com"})
 
     def test_only_unsupported_pages_trigger_embedded_search(self) -> None:
         self.assertTrue(vd_cli.should_try_embedded_media("ERROR: Unsupported URL: https://example.com/x"))
@@ -312,30 +272,27 @@ class VdCliOptionsTests(unittest.TestCase):
         self.assertFalse(vd_cli.should_try_embedded_media("ERROR: HTTP Error 404"))
 
     def test_embedded_media_options_use_page_title_and_referer(self) -> None:
-        base = vd_cli.build_ydl_options("best", Path(self.temp_dir.name))
-        media = vd_cli.EmbeddedMedia(
-            page_url="https://example.com/kurse/a/b/",
-            title="Mein Kurs Video 100%",
-            media_urls=["https://cdn.example/master.m3u8"],
-        )
+        base = vd_cli.build_ydl_options("best", self.folder)
+        base["outtmpl"] = {"default": base["outtmpl"]}  # yt-dlp rewrites it like this
+        media = vd_cli.EmbeddedMedia(page_url="https://example.com/a/", title="Kurs 100%", media_urls=["https://c/m.m3u8"])
 
         options = vd_cli.embedded_media_options(base, media)
 
-        self.assertEqual(options["http_headers"]["Referer"], "https://example.com/kurse/a/b/")
-        self.assertEqual(
-            Path(options["outtmpl"]).name, "Mein Kurs Video 100%%.%(ext)s"
-        )
-        self.assertNotIn("http_headers", base)
+        self.assertEqual(options["http_headers"]["Referer"], "https://example.com/a/")
+        self.assertEqual(Path(options["outtmpl"]), self.folder / "Kurs 100%%.%(ext)s")
 
-    def test_embedded_media_options_accept_outtmpl_rewritten_by_yt_dlp(self) -> None:
-        base = vd_cli.build_ydl_options("best", Path(self.temp_dir.name))
-        base["outtmpl"] = {"default": base["outtmpl"]}
-        media = vd_cli.EmbeddedMedia(page_url="https://example.com/a/", title="Kurs", media_urls=["https://c/m.m3u8"])
+    def test_progress_line_formatting(self) -> None:
+        self.assertEqual(vd_cli.format_size(1536 * 1024 * 1024), "1,5 GB")
+        self.assertEqual(vd_cli.format_eta(3725), "1:02:05")
+        self.assertEqual(vd_cli.format_eta(65), "1:05")
 
-        options = vd_cli.embedded_media_options(base, media)
-
-        self.assertEqual(Path(options["outtmpl"]), Path(self.temp_dir.name) / "Kurs.%(ext)s")
-
+        stream = io.StringIO()
+        progress = vd_cli.ConsoleProgress(stream)
+        progress.hook({"status": "downloading", "filename": "a.mp4", "info_dict": {"title": "Clip"}, "downloaded_bytes": 5})
+        progress.hook({"status": "finished", "filename": "a.mp4", "info_dict": {"title": "Clip"}, "total_bytes": 10})
+        self.assertEqual(stream.getvalue(), "Lade: a\n")
+        self.assertEqual(vd_cli.display_name("/x/Mein Video.f137.mp4.part"), "Mein Video")
+        self.assertEqual(vd_cli.display_name("C:/x/Kurs 1.mp4"), "Kurs 1")
 
 class PageExtractorTests(unittest.TestCase):
     PAGE = "https://example.com/kurse/kurs/video/"
@@ -454,185 +411,120 @@ class DownloadFallbackTests(unittest.TestCase):
         self.assertIn("Kein eingebettetes Video", vd_cli.friendly_error(str(ctx.exception)))
 
 
-class CookieInputTests(unittest.TestCase):
-    URL = "https://example.com/kurse/kurs/video/"
 
-    def test_netscape_text_is_kept_including_httponly_lines(self) -> None:
-        text = (
-            "# Netscape HTTP Cookie File\n# comment\n\n"
-            "example.com\tFALSE\t/\tTRUE\t0\tPHPSESSID\tabc\n"
-            "#HttpOnly_example.com\tFALSE\t/\tTRUE\t1794649663\twordpress_logged_in_x\tuser%7C1\n"
-        )
-        content, count = cookie_input.cookies_text_to_netscape(text, self.URL)
+class LoginTests(ConfigTestCase):
+    def save(self, *cookies: dict) -> None:
+        browser_login._save_cookies(vd_cli.login_profile_dir(), list(cookies))
 
-        self.assertEqual(count, 2)
-        self.assertTrue(content.startswith("# Netscape HTTP Cookie File"))
-        self.assertIn("#HttpOnly_example.com", content)
-
-    def test_cookie_header_is_converted_for_the_link_domain(self) -> None:
-        content, count = cookie_input.cookies_text_to_netscape(
-            "cookie: PHPSESSID=abc; wordpress_logged_in_x=user%7C1==; empty=", "https://www.example.com/x/"
-        )
-
-        self.assertEqual(count, 3)
-        self.assertIn(".example.com\tTRUE\t/\tFALSE\t0\twordpress_logged_in_x\tuser%7C1==", content)
-
-    def test_random_clipboard_text_is_rejected(self) -> None:
-        for text in ("", "   ", "https://example.com/kurse/", "hallo welt"):
-            with self.assertRaises(cookie_input.CookieInputError):
-                cookie_input.cookies_text_to_netscape(text, self.URL)
-
-    def test_temporary_cookie_file_is_deleted_even_on_error(self) -> None:
-        with self.assertRaises(RuntimeError):
-            with cookie_input.temporary_cookie_file("# Netscape HTTP Cookie File\n") as path:
-                self.assertTrue(path.exists())
-                remembered = path
-                raise RuntimeError("download failed")
-        self.assertFalse(remembered.exists())
-
-    def test_cli_uses_clipboard_cookies_temporarily(self) -> None:
-        clipboard = "example.com\tFALSE\t/\tTRUE\t0\tPHPSESSID\tabc\n"
-        seen: dict[str, str] = {}
-
-        def fake_download(url, quality_key, folder, **kwargs):
-            path = Path(kwargs["cookie_file"])
-            seen["path"] = str(path)
-            seen["content"] = path.read_text(encoding="utf-8")
-            return {"title": "Video"}
-
-        with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
-            with mock.patch.object(vd_cli, "read_clipboard_text", return_value=clipboard), mock.patch.object(
-                vd_cli, "clear_clipboard", return_value=True
-            ) as clear_mock, mock.patch.object(vd_cli, "download", side_effect=fake_download):
-                with redirect_stdout(io.StringIO()):
-                    code = vd_cli.main([self.URL, "-q", "best", "--cookies-from-clipboard"])
-
-        self.assertEqual(code, 0)
-        self.assertIn("PHPSESSID", seen["content"])
-        self.assertFalse(Path(seen["path"]).exists())
-        clear_mock.assert_called_once()
-
-
-class BrowserLoginTests(unittest.TestCase):
     def test_saved_cookies_are_filtered_by_site_path_and_expiry(self) -> None:
-        cookies = [
+        self.save(
             {"name": "login", "value": "a", "domain": "example.com", "path": "/", "expires": -1},
             {"name": "sub", "value": "b", "domain": ".example.com", "path": "/", "expires": 9999999999},
             {"name": "admin", "value": "c", "domain": "example.com", "path": "/wp-admin", "expires": -1},
             {"name": "old", "value": "d", "domain": "example.com", "path": "/", "expires": 1000},
             {"name": "other", "value": "e", "domain": ".google.com", "path": "/", "expires": -1},
-        ]
-        with tempfile.TemporaryDirectory() as temp:
-            profile = Path(temp)
-            browser_login._save_cookies(profile, cookies)
-
-            self.assertTrue(browser_login.has_saved_login(profile))
-            names = [c["name"] for c in browser_login.saved_cookies_for("https://example.com/kurse/x/", profile)]
-            self.assertEqual(names, ["login", "sub"])
-            names = [c["name"] for c in browser_login.saved_cookies_for("https://www.example.com/x/", profile)]
-            self.assertEqual(names, ["sub"])
-
-            self.assertTrue(browser_login.delete_saved_login(profile))
-            self.assertFalse(browser_login.has_saved_login(profile))
-
-    def test_cookies_to_netscape_is_readable_by_yt_dlp_format(self) -> None:
-        text = browser_login.cookies_to_netscape(
-            [
-                {"name": "a", "value": "1", "domain": ".example.com", "path": "/", "expires": 1900000000.5, "secure": True, "httpOnly": True},
-                {"name": "b", "value": "2", "domain": "example.com", "path": "/", "expires": -1, "secure": False},
-            ]
         )
-        content, count = cookie_input.cookies_text_to_netscape(text, "https://example.com/")
-
-        self.assertEqual(count, 2)
-        self.assertIn("#HttpOnly_.example.com\tTRUE\t/\tTRUE\t1900000000\ta\t1", content)
-        self.assertIn("example.com\tFALSE\t/\tFALSE\t0\tb\t2", content)
-
-    def test_cli_uses_saved_login_automatically(self) -> None:
-        seen: dict[str, str] = {}
-
-        def fake_download(url, quality_key, folder, **kwargs):
-            seen["content"] = Path(kwargs["cookie_file"]).read_text(encoding="utf-8")
-            seen["path"] = kwargs["cookie_file"]
-            return {"title": "Video"}
-
-        with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
-            browser_login._save_cookies(
-                _ensure_dir(vd_cli.login_profile_dir()),
-                [{"name": "wordpress_logged_in_x", "value": "v", "domain": "example.com", "path": "/", "expires": -1}],
-            )
-            with mock.patch.object(vd_cli, "download", side_effect=fake_download), redirect_stdout(io.StringIO()):
-                code = vd_cli.main(["https://example.com/kurse/x/", "-q", "best"])
-
-        self.assertEqual(code, 0)
-        self.assertIn("wordpress_logged_in_x", seen["content"])
-        self.assertFalse(Path(seen["path"]).exists())
-
+        profile = vd_cli.login_profile_dir()
+        self.assertEqual([c["name"] for c in browser_login.saved_cookies_for("https://example.com/kurse/x/", profile)], ["login", "sub"])
+        self.assertEqual([c["name"] for c in browser_login.saved_cookies_for("https://www.example.com/x/", profile)], ["sub"])
 
     def test_logins_of_several_sites_are_kept_listed_and_removed_separately(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            profile = Path(temp)
-            browser_login._save_cookies(profile, [{"name": "s", "value": "1", "domain": "kurse.example.com", "path": "/"}])
-            browser_login._save_cookies(profile, [{"name": "t", "value": "2", "domain": ".vimeo.com", "path": "/"}])
-            browser_login._save_cookies(profile, [{"name": "s", "value": "new", "domain": "kurse.example.com", "path": "/"}])
+        self.save({"name": "s", "value": "1", "domain": "kurse.example.com", "path": "/"})
+        self.save({"name": "t", "value": "2", "domain": ".vimeo.com", "path": "/"})
+        self.save({"name": "s", "value": "new", "domain": "kurse.example.com", "path": "/"})
+        profile = vd_cli.login_profile_dir()
 
-            self.assertEqual(browser_login.saved_sites(profile), [("kurse.example.com", 1), ("vimeo.com", 1)])
-            value = browser_login.saved_cookies_for("https://kurse.example.com/a", profile)[0]["value"]
-            self.assertEqual(value, "new")
+        self.assertEqual(browser_login.saved_sites(profile), [("kurse.example.com", 1), ("vimeo.com", 1)])
+        self.assertEqual(browser_login.saved_cookies_for("https://kurse.example.com/a", profile)[0]["value"], "new")
 
-            self.assertEqual(browser_login.delete_site_login(profile, "https://www.vimeo.com/123"), 1)
-            self.assertEqual(browser_login.saved_sites(profile), [("kurse.example.com", 1)])
+        with redirect_stdout(io.StringIO()) as output:
+            vd_cli.main(["logout", "https://www.vimeo.com/123"])
+            vd_cli.main(["login"])
+        self.assertIn("Login für vimeo.com gelöscht", output.getvalue())
+        self.assertIn("kurse.example.com", output.getvalue().split("gelöscht")[1])
+        self.assertEqual(browser_login.saved_sites(profile), [("kurse.example.com", 1)])
+
+    def test_cookies_to_netscape_and_temporary_file(self) -> None:
+        text = browser_login.cookies_to_netscape(
+            [{"name": "a", "value": "1", "domain": ".example.com", "path": "/", "expires": 1900000000.5, "secure": True, "httpOnly": True}]
+        )
+        self.assertIn("#HttpOnly_.example.com\tTRUE\t/\tTRUE\t1900000000\ta\t1", text)
+
+        with self.assertRaises(RuntimeError):
+            with browser_login.temporary_cookie_file(text) as path:
+                remembered = path
+                self.assertIn("a\t1", path.read_text(encoding="utf-8"))
+                raise RuntimeError("download failed")
+        self.assertFalse(remembered.exists())
 
     def test_login_might_help_skips_drm_and_tool_errors(self) -> None:
         self.assertTrue(vd_cli.login_might_help("ERROR: HTTP Error 403: Forbidden"))
         self.assertTrue(vd_cli.login_might_help("This video is only available for registered users"))
-        self.assertTrue(vd_cli.login_might_help("Kein eingebettetes Video auf der Seite gefunden. Falls die Seite einen Login braucht"))
+        self.assertTrue(vd_cli.login_might_help("Kein eingebettetes Video auf der Seite gefunden."))
         self.assertFalse(vd_cli.login_might_help("ERROR: This video is DRM protected"))
         self.assertFalse(vd_cli.login_might_help("ffmpeg not found"))
         self.assertFalse(vd_cli.login_might_help("HTTP Error 404: Not Found"))
 
-    def test_cli_offers_login_and_retries_after_failure(self) -> None:
-        calls: list[str | None] = []
+    def test_saved_login_is_used_automatically_and_file_removed(self) -> None:
+        self.save({"name": "wordpress_logged_in_x", "value": "v", "domain": "example.com", "path": "/"})
+        seen = {}
 
-        def fake_download(url, quality_key, folder, **kwargs):
-            calls.append(kwargs.get("cookie_file"))
+        def fake_download_url(url, options, **kwargs):
+            seen["path"] = options["cookiefile"]
+            seen["content"] = Path(options["cookiefile"]).read_text(encoding="utf-8")
+            return {"title": "Video"}
+
+        with mock.patch.object(vd_cli, "download_url", side_effect=fake_download_url):
+            vd_cli.run_download("https://example.com/kurse/x/", "best", self.folder, log=lambda _t: None)
+
+        self.assertIn("wordpress_logged_in_x", seen["content"])
+        self.assertFalse(Path(seen["path"]).exists())
+
+    def test_login_is_offered_and_download_retried(self) -> None:
+        calls = []
+
+        def fake_download_url(url, options, **kwargs):
+            calls.append(options.get("cookiefile"))
             if len(calls) == 1:
-                raise RuntimeError("Kein eingebettetes Video auf der Seite gefunden. Falls die Seite einen Login braucht ...")
+                raise RuntimeError("Kein eingebettetes Video auf der Seite gefunden.")
             return {"title": "Video"}
 
         def fake_login(url, profile_dir, **kwargs):
             browser_login._save_cookies(profile_dir, [{"name": "login", "value": "v", "domain": "example.com", "path": "/"}])
             return 1
 
-        with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
-            with mock.patch.object(vd_cli, "download", side_effect=fake_download), mock.patch.object(
-                vd_cli, "can_use_interactive_menu", return_value=True
-            ), mock.patch.object(vd_cli, "ask_yes_no", return_value=True) as ask_mock, mock.patch.object(
-                vd_cli, "interactive_login", side_effect=fake_login
-            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                code = vd_cli.main(["https://example.com/kurse/x/", "-q", "best"])
+        questions = []
+        with mock.patch.object(vd_cli, "download_url", side_effect=fake_download_url), mock.patch.object(
+            vd_cli, "interactive_login", side_effect=fake_login
+        ):
+            info = vd_cli.run_download(
+                "https://example.com/kurse/x/", "best", self.folder, log=lambda _t: None,
+                ask=lambda q: questions.append(q) or True,
+            )
 
-        self.assertEqual(code, 0)
+        self.assertEqual(info["title"], "Video")
         self.assertEqual(len(calls), 2)
         self.assertIsNone(calls[0])
         self.assertIsNotNone(calls[1])
-        self.assertIn("example.com", ask_mock.call_args.args[0])
+        self.assertIn("example.com", questions[0])
 
-    def test_cli_does_not_prompt_for_drm_or_without_terminal(self) -> None:
-        with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
-            for error, interactive in (("This video is DRM protected", True), ("HTTP Error 403: Forbidden", False)):
-                with mock.patch.object(vd_cli, "download", side_effect=RuntimeError(error)), mock.patch.object(
-                    vd_cli, "can_use_interactive_menu", return_value=interactive
-                ), mock.patch.object(vd_cli, "ask_yes_no") as ask_mock, redirect_stdout(io.StringIO()), redirect_stderr(
-                    io.StringIO()
-                ):
-                    self.assertEqual(vd_cli.main(["https://example.com/x/", "-q", "best"]), 1)
-                ask_mock.assert_not_called()
+    def test_no_login_prompt_for_drm_or_without_question_callback(self) -> None:
+        with mock.patch.object(vd_cli, "download_url", side_effect=RuntimeError("This video is DRM protected")):
+            with self.assertRaises(RuntimeError):
+                vd_cli.run_download("https://example.com/x/", "best", self.folder, log=lambda _t: None, ask=lambda q: self.fail(q))
 
+        with mock.patch.object(vd_cli, "download_url", side_effect=RuntimeError("HTTP Error 403: Forbidden")):
+            with self.assertRaises(RuntimeError) as ctx:
+                vd_cli.run_download("https://example.com/x/", "best", self.folder, log=lambda _t: None, ask=None)
+        self.assertIn('vd login "https://example.com/x/"', str(ctx.exception))
 
-def _ensure_dir(path: Path) -> Path:
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    def test_explicit_cookie_file_disables_saved_login_and_prompt(self) -> None:
+        self.save({"name": "login", "value": "v", "domain": "example.com", "path": "/"})
+        with mock.patch.object(vd_cli, "download_url", side_effect=RuntimeError("HTTP Error 403")) as dl:
+            with self.assertRaises(RuntimeError):
+                vd_cli.run_download("https://example.com/x/", "best", self.folder, cookie_file="my.txt",
+                                    log=lambda _t: None, ask=lambda q: self.fail(q))
+        self.assertTrue(dl.call_args.args[1]["cookiefile"].endswith("my.txt"))
 
 
 if __name__ == "__main__":

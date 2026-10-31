@@ -4,18 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mp4-downloader"
-version = "0.10.0"
-description = "Desktop and console MP4/MP3 downloader powered by yt-dlp."
+version = "1.0.0"
+description = "Videos per Link als MP4 oder MP3 herunterladen (yt-dlp)."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "yt-dlp>=2026.6.9",
+    "playwright>=1.40",
 ]
 
 [project.optional-dependencies]
-browser = [
-    "playwright>=1.40",
-]
 build = [
     "pyinstaller>=6",
 ]
@@ -23,5 +21,8 @@ build = [
 [project.scripts]
 vd = "vd_cli:main"
 
+[project.gui-scripts]
+vd-gui = "mp4_downloader:main"
+
 [tool.setuptools]
-py-modules = ["browser_login", "cookie_input", "mp4_downloader", "page_extractor", "run", "vd_cli"]
+py-modules = ["browser_login", "mp4_downloader", "page_extractor", "run", "vd_cli"]

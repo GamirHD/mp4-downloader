@@ -1,11 +1,11 @@
 """Remember website logins in the app's own browser profile.
 
 ``vd login URL`` opens a normal browser window with a profile that belongs to
-this app. The user logs in once and closes the window. Later downloads read the
-cookies for the link from that profile automatically, so no cookies file or
-clipboard step is needed. The cookies are taken from the browser while the
-window is open, so the Windows cookie encryption of Chrome/Brave/Edge is not
-a problem. They are stored only in the app's settings folder.
+this app. The user logs in once and closes the window; later downloads use the
+saved cookies for that website automatically. The cookies are taken from the
+browser while the window is open, so the Windows cookie encryption of
+Chrome/Brave/Edge is not a problem. They are stored only in the app's settings
+folder and handed to yt-dlp through a temporary file that is deleted afterwards.
 """
 
 from __future__ import annotations
@@ -13,10 +13,12 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 CHANNEL_FILE = "vd-browser.txt"
 COOKIES_FILE = "vd-cookies.json"
@@ -226,3 +228,23 @@ def delete_saved_login(profile_dir: Path) -> bool:
         return False
     shutil.rmtree(profile_dir, ignore_errors=True)
     return not profile_dir.exists()
+
+
+@contextmanager
+def temporary_cookie_file(content: str) -> Iterator[Path]:
+    """Write cookies to a private temp file and always delete it afterwards."""
+    handle, name = tempfile.mkstemp(prefix="vd-cookies-", suffix=".txt")
+    path = Path(name)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as file:
+            file.write(content)
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        yield path
+    finally:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass

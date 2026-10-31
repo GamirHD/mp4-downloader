@@ -1,81 +1,42 @@
 #!/usr/bin/env bash
+# mp4-downloader installieren:
+#   curl -fsSL https://raw.githubusercontent.com/GamirHD/mp4-downloader/main/install.sh | bash
 set -euo pipefail
 
-repo_url="https://github.com/GamirHD/mp4-downloader"
-archive_url="$repo_url/archive/refs/heads/main.tar.gz"
+package="https://github.com/GamirHD/mp4-downloader/archive/refs/heads/main.zip"
 install_root="${XDG_DATA_HOME:-$HOME/.local/share}/mp4-downloader"
-source_dir="$install_root/source"
 venv_dir="$install_root/venv"
 bin_dir="$HOME/.local/bin"
-tmp_dir="$(mktemp -d)"
-os_name="$(uname -s)"
 
-cleanup() {
-  rm -rf "$tmp_dir"
-}
-trap cleanup EXIT
+echo "Installiere mp4-downloader (vd)..."
 
-need_command() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    echo "Fehlt: $1" >&2
-    return 1
-  fi
-}
-
-echo "Installiere mp4-downloader fuer Linux/macOS..."
-
-need_command python3
-need_command curl
-need_command tar
-
-if ! command -v ffmpeg >/dev/null 2>&1; then
-  echo "Hinweis: ffmpeg wurde nicht gefunden. Installiere es mit deinem Paketmanager, z. B.:" >&2
-  echo "  sudo apt install ffmpeg" >&2
-  echo "  sudo dnf install ffmpeg" >&2
-  echo "  sudo pacman -S ffmpeg" >&2
-  echo "  brew install ffmpeg" >&2
-fi
-
-rm -rf "$install_root"
-mkdir -p "$install_root" "$bin_dir"
-
-echo "Lade Projekt von GitHub..."
-curl -fsSL "$archive_url" -o "$tmp_dir/mp4-downloader.tar.gz"
-tar -xzf "$tmp_dir/mp4-downloader.tar.gz" -C "$tmp_dir"
-mv "$tmp_dir/mp4-downloader-main" "$source_dir"
-
-echo "Erstelle lokale Python-Umgebung..."
-if ! python3 -m venv "$venv_dir"; then
-  echo "Konnte keine Python-venv erstellen." >&2
-  if [[ "$os_name" == "Darwin" ]]; then
-    echo "Installiere Python ueber Homebrew und versuche es erneut:" >&2
-    echo "  brew install python" >&2
-  else
-    echo "Installiere das venv-Paket, z. B. unter Debian/Ubuntu:" >&2
-    echo "  sudo apt install python3-venv" >&2
-  fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "Python 3 fehlt. Installiere es zuerst (z. B. sudo apt install python3 python3-venv / brew install python)." >&2
   exit 1
 fi
 
-"$venv_dir/bin/python" -m pip install --upgrade pip
-"$venv_dir/bin/python" -m pip install --upgrade "$source_dir"
+rm -rf "$venv_dir"
+mkdir -p "$install_root" "$bin_dir"
+if ! python3 -m venv "$venv_dir" >/dev/null 2>&1; then
+  echo "Konnte keine Python-Umgebung anlegen. Unter Debian/Ubuntu: sudo apt install python3-venv" >&2
+  exit 1
+fi
 
-cat > "$bin_dir/vd" <<EOF
-#!/usr/bin/env bash
-exec "$venv_dir/bin/vd" "\$@"
-EOF
-chmod +x "$bin_dir/vd"
+"$venv_dir/bin/python" -m pip install --upgrade --quiet --disable-pip-version-check "$package"
+# Browser für Logins und Seiten mit eigenem Video-Player (wird übersprungen, wenn es nicht klappt)
+"$venv_dir/bin/python" -m playwright install chromium >/dev/null 2>&1 || true
+
+ln -sf "$venv_dir/bin/vd" "$bin_dir/vd"
 
 echo
-echo "Fertig."
-echo "vd wurde installiert nach: $bin_dir/vd"
+echo "Fertig! Lade ein Video mit:"
+echo '  vd "https://www.youtube.com/watch?v=..."'
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  echo
+  echo "Hinweis: ffmpeg fehlt noch (z. B. sudo apt install ffmpeg / brew install ffmpeg)."
+fi
 if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
   echo
-  echo "Hinweis: $bin_dir ist noch nicht in PATH."
-  echo "Fuege diese Zeile zu ~/.bashrc, ~/.zshrc oder deiner Shell-Konfiguration hinzu:"
-  echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+  echo "Hinweis: Füge ~/.local/bin zu deinem PATH hinzu:"
+  echo '  echo '"'"'export PATH="$HOME/.local/bin:$PATH"'"'"' >> ~/.bashrc'
 fi
-echo
-echo "Danach kannst du verwenden:"
-echo '  vd "https://www.youtube.com/watch?v=..."'
-echo "  vd settings"
