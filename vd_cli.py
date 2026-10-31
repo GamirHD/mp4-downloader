@@ -20,9 +20,12 @@ from browser_login import (
     BrowserLoginError,
     cookies_to_netscape,
     delete_saved_login,
+    delete_site_login,
     has_saved_login,
     interactive_login,
     saved_cookies_for,
+    saved_sites,
+    site_of,
 )
 from cookie_input import (
     CookieInputError,
@@ -35,7 +38,7 @@ from page_extractor import EmbeddedMedia, find_embedded_media, referer_headers
 
 
 APP_NAME = "mp4-downloader"
-__version__ = "0.9.3"
+__version__ = "0.10.0"
 QUALITY_OPTIONS = {
     "best": ("Beste Qualität", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", "mp4"),
     "1080p": ("Bis 1080p", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080]", "mp4"),
@@ -92,6 +95,49 @@ def saved_login_cookie_text(url: str, *, log: Any = print) -> str | None:
         return None
     log(f"Gespeicherter Login wird verwendet ({len(cookies)} Cookies).")
     return cookies_to_netscape(cookies)
+
+
+LOGIN_ERROR_HINTS = (
+    "login",
+    "log in",
+    "sign in",
+    "signin",
+    "anmeld",
+    "einlogg",
+    "cookies",
+    "401",
+    "403",
+    "forbidden",
+    "unauthorized",
+    "private",
+    "members",
+    "premium",
+    "subscri",
+    "registered",
+    "authenticat",
+    "account",
+    "kein eingebettetes video",
+)
+NO_LOGIN_HELP_HINTS = ("drm", "ffmpeg", "dpapi", "no space", "kein speicherplatz", "could not copy chrome cookie")
+
+
+def login_might_help(error_text: str) -> bool:
+    """Guess whether logging in could fix a failed download."""
+    lower = error_text.lower()
+    if any(hint in lower for hint in NO_LOGIN_HELP_HINTS):
+        return False
+    return any(hint in lower for hint in LOGIN_ERROR_HINTS)
+
+
+def ask_yes_no(question: str, *, default: bool = True) -> bool:
+    suffix = " [J/n] " if default else " [j/N] "
+    try:
+        answer = input(question + suffix).strip().lower()
+    except EOFError:
+        return False
+    if not answer:
+        return default
+    return answer in {"j", "ja", "y", "yes"}
 
 
 def download_archive_path() -> Path:
@@ -297,7 +343,10 @@ def friendly_error(raw_error: str) -> str:
     if "kein eingebettetes video" in lower:
         return text
     if "drm" in lower and "dpapi" not in lower:
-        return "Dieses Video ist kopiergeschuetzt (DRM) und kann nicht heruntergeladen werden."
+        return (
+            "Dieses Video ist kopiergeschuetzt (DRM) und kann nicht heruntergeladen werden "
+            "(z. B. Netflix, Disney+, Prime Video) - auch nicht mit Login."
+        )
     if "dpapi" in lower or "could not copy chrome cookie database" in lower:
         return (
             "Die Browser-Cookies koennen nicht gelesen werden (Chrome/Brave/Edge sperren das unter Windows). "
@@ -566,9 +615,8 @@ def download_url(
 
     if media is None or not media.media_urls:
         raise RuntimeError(
-            "Kein eingebettetes Video auf der Seite gefunden. Falls die Seite einen Login braucht, "
-            "waehle deinen Browser fuer den Login aus (CLI: --cookies-from-browser) "
-            "oder kopiere die .m3u8-Adresse aus den Entwicklertools (F12 > Netzwerk)."
+            "Kein eingebettetes Video auf der Seite gefunden. Falls die Seite einen Login braucht: "
+            "`vd login LINK`. Sonst kannst du die .m3u8-Adresse aus den Entwicklertools (F12 > Netzwerk) kopieren."
         )
 
     media_options = embedded_media_options(options, media)
@@ -644,6 +692,18 @@ def history_command(args: argparse.Namespace) -> int:
     print(f"Verlauf-Datei: {history_path()}")
     return 0
 
+def login_list_command() -> int:
+    sites = saved_sites(login_profile_dir())
+    if not sites:
+        print("Noch keine Logins gespeichert. Einloggen mit: vd login LINK")
+        return 0
+    print("Gespeicherte Logins:")
+    for site, count in sites:
+        print(f"  {site}  ({count} Cookies)")
+    print("Einzeln loeschen mit: vd logout SEITE")
+    return 0
+
+
 def login_command(args: argparse.Namespace) -> int:
     urls = normalize_url_args([args.url])
     if not urls:
@@ -655,7 +715,7 @@ def login_command(args: argparse.Namespace) -> int:
         print(f"Fehler: {exc}", file=sys.stderr)
         return 1
     if count:
-        print(f"Login gespeichert ({count} Cookies). Ab jetzt reicht: vd \"LINK\"")
+        print(f"Login fuer {site_of(urls[0])} gespeichert ({count} Cookies). Ab jetzt reicht: vd \"LINK\"")
         return 0
     print("Es wurden keine Cookies fuer diese Seite gespeichert. Warst du eingeloggt?", file=sys.stderr)
     return 1
@@ -779,6 +839,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Den mit `vd login` gespeicherten Login fuer diesen Download nicht verwenden",
     )
     parser.add_argument(
+        "--no-login-prompt",
+        action="store_true",
+        help="Nicht nachfragen, ob man sich einloggen moechte, wenn ein Download scheitert",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Diagnose speichern (Screenshot und Anfragen des Hintergrund-Browsers) im Ordner vd-debug",
@@ -824,11 +889,25 @@ def main(argv: list[str] | None = None) -> int:
             prog="vd login",
             description="Einmal im Programm-Browser einloggen; danach nutzt vd den Login automatisch.",
         )
-        login_parser.add_argument("url", help="Seite, auf der du dich einloggen willst, z. B. https://example.com")
-        return login_command(login_parser.parse_args(argv[1:]))
+        login_parser.add_argument("url", nargs="?", help="Seite, auf der du dich einloggen willst, z. B. https://example.com")
+        login_parser.add_argument("--list", action="store_true", help="Seiten mit gespeichertem Login anzeigen")
+        login_args = login_parser.parse_args(argv[1:])
+        if login_args.list or not login_args.url:
+            return login_list_command()
+        return login_command(login_args)
     if argv and argv[0] == "logout":
+        logout_parser = argparse.ArgumentParser(prog="vd logout", description="Gespeicherte Logins loeschen.")
+        logout_parser.add_argument("site", nargs="?", help="Nur diese Seite ausloggen, z. B. example.com (ohne: alle)")
+        logout_args = logout_parser.parse_args(argv[1:])
+        if logout_args.site:
+            removed = delete_site_login(login_profile_dir(), logout_args.site)
+            if removed:
+                print(f"Login fuer {site_of(logout_args.site)} geloescht.")
+            else:
+                print(f"Fuer {site_of(logout_args.site)} war kein Login gespeichert.")
+            return 0
         if delete_saved_login(login_profile_dir()):
-            print("Gespeicherter Login geloescht.")
+            print("Alle gespeicherten Logins geloescht.")
         else:
             print("Es war kein Login gespeichert.")
         return 0
@@ -850,7 +929,8 @@ def main(argv: list[str] | None = None) -> int:
         print("  vd history               Download-Verlauf anzeigen")
         print("  vd qualities             Qualitaeten anzeigen")
         print("  vd login LINK            Einmal einloggen, danach automatisch mit Login laden")
-        print("  vd logout                Gespeicherten Login loeschen")
+        print("  vd login --list          Gespeicherte Logins anzeigen")
+        print("  vd logout [SEITE]        Gespeicherten Login loeschen (eine Seite oder alle)")
         return 2
 
     settings = load_settings()
@@ -895,14 +975,16 @@ def main(argv: list[str] | None = None) -> int:
             if len(urls) > 1:
                 print()
                 print(f"[{index}/{len(urls)}] {url}")
-            try:
+            use_saved_login = cookie_file is None and not cookies_from_browser and not args.no_saved_login
+
+            def attempt(url: str = url, use_saved_login: bool = use_saved_login) -> dict[str, Any] | None:
                 with contextlib.ExitStack() as url_stack:
                     url_cookie_file = cookie_file
-                    if url_cookie_file is None and not cookies_from_browser and not args.no_saved_login:
+                    if use_saved_login:
                         saved = saved_login_cookie_text(url)
                         if saved:
                             url_cookie_file = str(url_stack.enter_context(temporary_cookie_file(saved)))
-                    info = download(
+                    return download(
                         url,
                         quality_key,
                         folder,
@@ -913,6 +995,32 @@ def main(argv: list[str] | None = None) -> int:
                         use_download_archive=use_download_archive,
                         debug=args.debug,
                     )
+
+            try:
+                try:
+                    info = attempt()
+                except Exception as first_error:  # noqa: BLE001 - maybe a login helps
+                    can_prompt = use_saved_login and not args.no_login_prompt and can_use_interactive_menu()
+                    if not (can_prompt and login_might_help(str(first_error))):
+                        if use_saved_login and login_might_help(str(first_error)):
+                            print(f"Tipp: Falls die Seite einen Login braucht: vd login \"{url}\"", file=sys.stderr)
+                        raise
+                    site = site_of(url)
+                    print(f"Fehler: {friendly_error(str(first_error))}", file=sys.stderr)
+                    already = bool(saved_cookies_for(url, login_profile_dir()))
+                    question = (
+                        f"Der gespeicherte Login fuer {site} ist vielleicht abgelaufen. Neu einloggen?"
+                        if already
+                        else f"Vielleicht braucht {site} einen Login. Jetzt im Browserfenster einloggen?"
+                    )
+                    if not ask_yes_no(question):
+                        raise
+                    count = interactive_login(url, login_profile_dir())
+                    if not count:
+                        print("Es wurden keine Cookies gespeichert.", file=sys.stderr)
+                        raise
+                    print(f"Login fuer {site} gespeichert ({count} Cookies). Neuer Versuch...")
+                    info = attempt()
                 title = info.get("title", "Video") if isinstance(info, dict) else "Video"
                 add_history_entry(url, title=title, quality_key=quality_key, folder=folder)
             except Exception as exc:  # noqa: BLE001 - CLI boundary

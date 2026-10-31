@@ -26,7 +26,7 @@ Simple desktop and CLI app for downloading supported video links as MP4 or MP3.
 - Shared download history for CLI and GUI
 - Videos embedded in normal web pages (e.g. course platforms with their own player): paste the page link and the app finds the stream
 - GUI browser-login choice for pages that require your login
-- One-time login in the app's own browser window (`vd login`), used automatically afterwards
+- Login when needed: if a download fails because of a missing login, vd offers to open a browser window, saves the login per website and retries
 - Login cookies from the clipboard, used only temporarily (no cookie file left in the download folder)
 
 ## Before Installing
@@ -196,14 +196,19 @@ The page is sent as `Referer` and the file is named after the page title.
 vd "https://example.com/kurse/mein-kurs/video-1/" --cookies-from-browser firefox
 ```
 
-The easiest way for pages behind a login: log in once in the app's own browser window. After that
-the login is used automatically and a plain `vd "LINK"` is enough:
+The easiest way for pages behind a login: just run `vd "LINK"`. If the download fails and a login
+could help, vd asks whether you want to log in. A browser window opens, you log in, close the
+window, and the download starts again. The login is saved per website and used automatically
+next time. You can also log in beforehand or manage the saved logins:
 
 ```bash
-vd login "https://example.com"
-vd "https://example.com/kurse/mein-kurs/video-1/"
-vd logout   # delete the saved login
+vd login "https://example.com"   # log in beforehand
+vd login --list                   # websites with a saved login
+vd logout example.com             # remove the login of one website
+vd logout                         # remove all saved logins
 ```
+
+Use `--no-login-prompt` to never ask.
 
 The login is stored only in the app settings folder (not in the download folder). In the GUI use
 the "Einloggen…" button next to "Browser-Login". Websites usually keep you logged in for a few
@@ -247,7 +252,8 @@ If no video is found, run again with `--debug`: a screenshot and the list of req
 hidden browser are saved to `vd-debug` in the download folder. The hidden browser uses an
 installed Microsoft Edge or Chrome when available.
 
-DRM-protected (copy-protected) videos are not supported.
+DRM-protected (copy-protected) videos are not supported, even with a login - for example
+Netflix, Disney+ or Prime Video. vd reports this instead of asking for a login.
 
 Download a full playlist instead of only the linked video:
 
