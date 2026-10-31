@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import getpass
 import json
 import os
 import re
@@ -33,9 +34,19 @@ from browser_login import (
     temporary_cookie_file,
 )
 from page_extractor import EmbeddedMedia, find_embedded_media, referer_headers
+from site_auth import (
+    Credentials,
+    credential_sites,
+    delete_credentials,
+    is_http_auth_error,
+    basic_auth_header,
+    load_credentials,
+    save_credentials,
+    site_key,
+)
 
 APP_NAME = "mp4-downloader"
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 REPO_ZIP_URL = "https://github.com/GamirHD/mp4-downloader/archive/refs/heads/main.zip"
 LATEST_RELEASE_API = "https://api.github.com/repos/GamirHD/mp4-downloader/releases/latest"
 SETUP_URL = "https://github.com/GamirHD/mp4-downloader/releases/latest/download/mp4-downloader-setup.exe"
@@ -263,6 +274,8 @@ def friendly_error(raw_error: str) -> str:
         )
     if "ffmpeg" in lower:
         return "ffmpeg fehlt. Installiere es (Windows: winget install Gyan.FFmpeg) und öffne ein neues Terminal."
+    if is_http_auth_error(lower):
+        return "Benutzername oder Passwort fehlt oder ist falsch (HTTP 401)."
     if "sign in to confirm" in lower or "not a bot" in lower:
         return "YouTube verlangt einen Login. Logge dich mit `vd login https://www.youtube.com` ein."
     if "unsupported url" in lower:
@@ -359,26 +372,51 @@ def embedded_media_options(base_options: dict[str, Any], media: EmbeddedMedia) -
 # --------------------------------------------------------------------------- downloading
 
 
+def make_downloader(options: dict[str, Any], credentials: Credentials | None, site_url: str) -> Any:
+    """A YoutubeDL that sends the HTTP login only with requests to the website of ``site_url``."""
+    if credentials is None:
+        return yt_dlp.YoutubeDL(options)
+
+    from yt_dlp.networking import Request
+
+    header = basic_auth_header(credentials)
+    allowed = site_key(site_url)
+
+    class AuthYoutubeDL(yt_dlp.YoutubeDL):
+        def urlopen(self, req: Any) -> Any:
+            if isinstance(req, str):
+                req = Request(req)
+            if site_key(req.url) == allowed and "Authorization" not in req.headers:
+                req.headers["Authorization"] = header
+            return super().urlopen(req)
+
+    return AuthYoutubeDL(options)
+
+
 def download_url(
     url: str,
     options: dict[str, Any],
     *,
     log: Callable[[str], None] = print,
     debug_dir: Path | None = None,
+    credentials: Credentials | None = None,
 ) -> dict[str, Any] | None:
-    """Download ``url``; for unknown pages look for an embedded video stream."""
+    """Download ``url``; for unknown pages look for an embedded video stream.
+
+    ``credentials`` (HTTP login) are only sent to the website of ``url``.
+    """
     if yt_dlp is None:
         raise RuntimeError("yt-dlp fehlt. Installiere vd neu.")
 
     # yt-dlp rewrites the options dict it gets, so keep the original untouched.
-    with yt_dlp.YoutubeDL(dict(options)) as downloader:
+    with make_downloader(dict(options), credentials, url) as downloader:
         try:
             return downloader.extract_info(url, download=True)
         except yt_dlp.utils.DownloadError as exc:
             if not should_try_embedded_media(str(exc)):
                 raise
             log("Suche das Video auf der Seite...")
-            media = find_embedded_media(downloader, url, debug_dir=debug_dir, log=log)
+            media = find_embedded_media(downloader, url, debug_dir=debug_dir, credentials=credentials, log=log)
 
     if media is None or not media.media_urls:
         raise RuntimeError(
@@ -390,7 +428,7 @@ def download_url(
     last_error: Exception | None = None
     for candidate in media.media_urls:
         try:
-            with yt_dlp.YoutubeDL(dict(media_options)) as downloader:
+            with make_downloader(dict(media_options), credentials, url) as downloader:
                 info = downloader.extract_info(candidate, download=True)
         except yt_dlp.utils.DownloadError as exc:
             last_error = exc
@@ -423,13 +461,17 @@ def run_download(
     logger: Any | None = None,
     log: Callable[[str], None] = print,
     ask: Callable[[str], bool] | None = None,
+    ask_credentials: Callable[[str, bool], Credentials | None] | None = None,
 ) -> dict[str, Any] | None:
     """Download one link. Uses a saved login; offers a login when one seems to be missing.
 
     ``ask`` is called with a yes/no question; without it vd never opens a login window.
+    ``ask_credentials(site, wrong)`` asks for user name and password (HTTP login).
     """
     folder.mkdir(parents=True, exist_ok=True)
     use_saved_login = cookie_file is None
+    site = site_of(url)
+    auth: list[Credentials | None] = [load_credentials(login_profile_dir(), url) if use_saved_login else None]
 
     def attempt() -> dict[str, Any] | None:
         with contextlib.ExitStack() as stack:
@@ -447,14 +489,17 @@ def run_download(
                 progress_hooks=progress_hooks,
                 logger=logger,
             )
-            return download_url(url, options, log=log, debug_dir=folder / "vd-debug" if debug else None)
+            return download_url(
+                url, options, log=log, debug_dir=folder / "vd-debug" if debug else None, credentials=auth[0]
+            )
 
     try:
         return attempt()
     except Exception as first_error:  # noqa: BLE001 - maybe a login helps
-        if not (use_saved_login and login_might_help(str(first_error))):
+        if use_saved_login and is_http_auth_error(str(first_error)):
+            return _retry_with_credentials(url, site, auth, attempt, ask_credentials, log, first_error)
+        if not (use_saved_login and login_might_help(str(first_error))) or auth[0] is not None:
             raise
-        site = site_of(url)
         if ask is None:
             raise RuntimeError(f"{friendly_error(str(first_error))}\nTipp: vd login \"{url}\"") from first_error
         if saved_cookies_for(url, login_profile_dir()):
@@ -468,6 +513,51 @@ def run_download(
             raise RuntimeError("Es wurde kein Login gespeichert.") from first_error
         log(f"Login für {site} gespeichert. Neuer Versuch...")
         return attempt()
+
+
+def _retry_with_credentials(
+    url: str,
+    site: str,
+    auth: list[Credentials | None],
+    attempt: Callable[[], dict[str, Any] | None],
+    ask_credentials: Callable[[str, bool], Credentials | None] | None,
+    log: Callable[[str], None],
+    first_error: Exception,
+) -> dict[str, Any] | None:
+    """The website asks for user name and password (HTTP login, e.g. university servers)."""
+    if ask_credentials is None:
+        raise RuntimeError(f"{site} verlangt Benutzername und Passwort. Starte vd im Terminal, um sie einzugeben.") from first_error
+    wrong = auth[0] is not None
+    for _ in range(3):
+        credentials = ask_credentials(site, wrong)
+        if credentials is None:
+            raise RuntimeError("Abgebrochen: keine Zugangsdaten eingegeben.") from first_error
+        auth[0] = credentials
+        try:
+            info = attempt()
+        except Exception as exc:  # noqa: BLE001 - wrong password? ask again
+            if is_http_auth_error(str(exc)):
+                wrong = True
+                continue
+            raise
+        if save_credentials(login_profile_dir(), url, credentials):
+            log(f"Zugangsdaten für {site} gespeichert (verschlüsselt).")
+        return info
+    raise RuntimeError("Benutzername oder Passwort falsch.") from first_error
+
+
+def ask_credentials_console(site: str, wrong: bool) -> Credentials | None:
+    if wrong:
+        warn("Benutzername oder Passwort falsch.")
+    say(f"{site} verlangt Benutzername und Passwort.")
+    try:
+        username = input("Benutzername: ").strip()
+        if not username:
+            return None
+        password = getpass.getpass("Passwort (wird nicht angezeigt): ")
+    except EOFError:
+        return None
+    return Credentials(username, password)
 
 
 def downloaded_file(info: dict[str, Any] | None) -> str | None:
@@ -617,6 +707,7 @@ def download_command(args: argparse.Namespace) -> int:
                 logger=None if not args.debug else _VerboseLogger(),
                 log=lambda text: (progress.end_line(), say(text)),
                 ask=ask,
+                ask_credentials=ask_credentials_console if ask else None,
             )
         except KeyboardInterrupt:
             progress.end_line()
@@ -652,12 +743,12 @@ class _VerboseLogger:
 
 def login_command(args: argparse.Namespace) -> int:
     if not args.url:
-        sites = saved_sites(login_profile_dir())
+        sites = sorted({site for site, _count in saved_sites(login_profile_dir())} | set(credential_sites(login_profile_dir())))
         if not sites:
             say('Noch keine Logins gespeichert. Einloggen mit: vd login "LINK"')
             return 0
         say("Gespeicherte Logins:")
-        for site, _count in sites:
+        for site in sites:
             say(f"  {site}")
         say("Ausloggen mit: vd logout SEITE")
         return 0
@@ -681,11 +772,13 @@ def login_command(args: argparse.Namespace) -> int:
 def logout_command(args: argparse.Namespace) -> int:
     if args.site:
         site = site_of(args.site)
-        if delete_site_login(login_profile_dir(), args.site):
+        removed_credentials = delete_credentials(login_profile_dir(), args.site)
+        if delete_site_login(login_profile_dir(), args.site) or removed_credentials:
             say(f"Login für {site} gelöscht.")
         else:
             say(f"Für {site} war kein Login gespeichert.")
         return 0
+    delete_credentials(login_profile_dir())
     say("Alle Logins gelöscht." if delete_saved_login(login_profile_dir()) else "Es war kein Login gespeichert.")
     return 0
 
@@ -804,6 +897,14 @@ def selftest_command(_args: argparse.Namespace) -> int:
         warn(f"Hintergrund-Browser: FEHLER {exc}")
         return 1
     say(f"Hintergrund-Browser: ok ({title})")
+    if os.name == "nt":
+        from site_auth import _dpapi
+
+        secret = "Pässwort-Test".encode("utf-8")
+        if _dpapi(_dpapi(secret, protect=True), protect=False) != secret:
+            warn("Verschlüsselung der Zugangsdaten: FEHLER")
+            return 1
+        say("Verschlüsselung der Zugangsdaten: ok")
     return 0
 
 
